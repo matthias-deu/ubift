@@ -1,10 +1,8 @@
 import argparse
 import logging
-from collections import Counter
 
-from src.framework.disk_image_layer.mtd import Image
-from src.framework.volume_layer.ubi import find_signature
-from src.framework.volume_layer.ubi_structs import UBI_EC_HDR, UBI_VID_HDR
+from ubift.src.framework.disk_image_layer.mtd import Image
+from ubift.src.framework.disk_image_layer.partitioner import UBIPartitioner
 
 rootlog = logging.getLogger()
 console = logging.StreamHandler()
@@ -55,9 +53,22 @@ class CommandLine:
         input = args.input
         with open(input, "rb") as f:
             data = f.read()
-            #ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
+
+            t = Image(data, -1, -1, -1)
+            u = UBIPartitioner(t)
+
+            # ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
+            # a = UBI_EC_HDR(data, ec_hdr_offset)
+            # print(a.inspect())
+
+            # fm = ["\x7B\x11\xD6\x9F".encode("utf-8"), "\xD4\xB8\x2E\xF7".encode("utf-8"), "\xFA\x37\x0E\xD1".encode("utf-8"), "\x67\xAF\x4D\x08".encode("utf-8"),
+            #       "\xf0\xc0\x40\xa8".encode("utf-8")]
+            # for f in fm:
+            #     ec_hdr_offset = find_signature(data, f)
+            #     print(ec_hdr_offset)
+
             #print(ec_hdr_offset)
-            t = Image(data, -1, -1, 64)
+            #t = Image(data, -1, -1, 64)
             # hits = find_signature(data, UBI_EC_HDR.__magic__)
             #
             # for hit in hits:

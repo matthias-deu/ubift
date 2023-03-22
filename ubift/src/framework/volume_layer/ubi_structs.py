@@ -1,6 +1,6 @@
 import cstruct as cstruct
 from cstruct import MemCStruct
-from src.framework.structs import MemCStructExt
+from ubift.src.framework.structs import MemCStructExt
 
 VTBL_VOLUME_ID = 0x7fffefff
 
@@ -9,7 +9,7 @@ VTBL_VOLUME_ID = 0x7fffefff
 """
 class UBI_VID_HDR(MemCStructExt):
     __byte_order__ = cstruct.BIG_ENDIAN
-    __magic__ = "\x55\x42\x49\x21".encode("utf-8")
+    __magic__ = "\x55\x42\x49\x21".encode("utf-8") # UBI!
     __def__ = """
         struct ubi_vid_hdr {
             uint32  magic;
@@ -33,7 +33,7 @@ class UBI_VID_HDR(MemCStructExt):
 
 class UBI_EC_HDR(MemCStructExt):
     __byte_order__ = cstruct.BIG_ENDIAN
-    __magic__ = "\x55\x42\x49\x23".encode("utf-8")
+    __magic__ = "\x55\x42\x49\x23".encode("utf-8") # UBI#
     __def__ = """
         struct ubi_ec_hdr {
             uint32  magic;
