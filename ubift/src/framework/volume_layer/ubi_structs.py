@@ -77,6 +77,11 @@ class UBI_VTBL_RECORD(MemCStructExt):
     """
 
     def formatted_name(self) -> str:
+        """
+        Prints the name of the Volume by concatenating the hex values and decoding them
+        @return:
+        """
         formatted_name = [f"{x:x}" for x in list(self.name)]
         formatted_name = formatted_name[:self.name_len]
-        return "".join(formatted_name)
+        formatted_name = "".join(formatted_name)
+        return bytearray.fromhex(formatted_name).decode()

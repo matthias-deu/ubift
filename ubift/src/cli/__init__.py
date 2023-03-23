@@ -1,8 +1,8 @@
 import argparse
 import logging
 
+from ubift.src.framework.base.partitioner import UBIPartitioner
 from ubift.src.framework.disk_image_layer.mtd import Image
-from ubift.src.framework.disk_image_layer.partitioner import UBIPartitioner
 
 rootlog = logging.getLogger()
 console = logging.StreamHandler()

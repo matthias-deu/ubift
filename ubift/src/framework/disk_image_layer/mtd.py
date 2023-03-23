@@ -1,11 +1,15 @@
+import logging
+
 from ubift.src.exception import UBIFTException
 from ubift.src.framework.base import find_signature
-from ubift.src.framework.volume_layer.ubi import ubiftlog
 from ubift.src.framework.volume_layer.ubi_structs import UBI_EC_HDR, UBI_VID_HDR
+
+ubiftlog = logging.getLogger(__name__)
 
 class Image:
     """
     A Image is a raw dump file, i.e., bunch of bytes from a NAND flash.
+    Basically, an Image represents an MTD device which can have multiple MTD-partitions.
     """
     def __init__(self, data: bytes, block_size: int = -1, page_size: int = -1, oob_size: int = -1):
         self._oob_size = oob_size
@@ -42,11 +46,11 @@ class Image:
         ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
         if ec_hdr_offset < 0:
             raise UBIFTException("Block size not specified, cannot guess size neither because no UBI_EC_HDR signatures found.")
-        possible_block_sizes = [i*self.page_size if self.oob_size < 0 else (i*self.page_size+i*self.oob_size) for i in range(1, 128)]
+        possible_block_sizes = [i*self.page_size if self.oob_size < 0 else (i*self.page_size+i*self.oob_size) for i in range(1, 512)]
         for i,block_size in enumerate(possible_block_sizes):
             if data[ec_hdr_offset+block_size:ec_hdr_offset+block_size+4] == UBI_EC_HDR.__magic__:
                 guessed_size = (self.page_size * (i+1))
-                ubiftlog.info(f"[+] Guessed block_size: {guessed_size} ({guessed_size // 1024}KiB)")
+                ubiftlog.info(f"[+] Guessed block_size: {guessed_size} ({guessed_size / 1024}KiB)")
                 return guessed_size
 
         raise UBIFTException(f"[-] Block size not specified, cannot guess size neither.")
@@ -61,10 +65,9 @@ class Image:
         if ec_hdr_offset < 0:
             raise UBIFTException(
                 "Page size not specified, cannot guess size neither because no UBI_EC_HDR signatures found.")
-        ec_hdr = UBI_EC_HDR()
-        ec_hdr.parse(data, ec_hdr_offset)
+        ec_hdr = UBI_EC_HDR(data, ec_hdr_offset)
         if ec_hdr.vid_hdr_offset > 0:
-            ubiftlog.info(f"[+] Guessed page_size: {ec_hdr.vid_hdr_offset} ({ec_hdr.vid_hdr_offset // 1024}KiB)")
+            ubiftlog.info(f"[+] Guessed page_size: {ec_hdr.vid_hdr_offset} ({ec_hdr.vid_hdr_offset / 1024}KiB)")
             return ec_hdr.vid_hdr_offset
 
         raise UBIFTException(f"[-] Page size not specified, cannot guess size neither.")
@@ -93,15 +96,23 @@ class Image:
         return stripped_data
 
 class Partition:
+    """
+    A Partition represents an MTD-partition.
+    """
     def __init__(self, image: Image, offset: int, len: int, name: str):
         self._image = image
         self._offset = offset
         self._len = len
         self._name = name
+        self._ubi_instances = []
 
         ubiftlog.info(
             f"[!] Initialized Partition {self.offset} to {self.offset+self.len} "
-            f"(len: {self.len}, PEBs: {((self.offset+self.len) - self.offset) // self.image.block_size})")
+            f"(len: {self.len}, blocks: {((self.offset+self.len) - self.offset) // self.image.block_size})")
+
+    @property
+    def ubi_instances(self):
+        return self._ubi_instances
 
     @property
     def image(self):

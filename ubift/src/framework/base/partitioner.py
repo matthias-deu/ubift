@@ -1,10 +1,13 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import List
 
 from ubift.src.framework.base import find_signature
 from ubift.src.framework.disk_image_layer.mtd import Image, Partition
+from ubift.src.framework.volume_layer.ubi import UBI
 from ubift.src.framework.volume_layer.ubi_structs import UBI_EC_HDR
-from ubift.src.logging import ubiftlog
+
+ubiftlog = logging.getLogger(__name__)
 
 class Partitioner(ABC):
     """
@@ -30,7 +33,7 @@ class Partitioner(ABC):
 class UBIPartitioner(Partitioner):
     """
     Partitions a raw Image by looking for UBI magic bytes. All parts that
-    do not belong to UBI instances are marked treated as unallocated partitions.
+    do not belong to UBI instances are treated as unallocated partitions by this Partitioner.
     """
     def __init__(self, image: Image):
         super().__init__(image)
@@ -64,7 +67,22 @@ class UBIPartitioner(Partitioner):
             current += self.image.block_size
         end = current
 
-        ubiftlog.info(f"[+] Found UBI partition at offset {start} to {end} (len: {end-start}, PEBs: {(end-start) // self.image.block_size})")
+        ubiftlog.info(f"[+] Found Partition with UBI at offset {start} to {end} (len: {end-start}, blocks: {(end-start) // self.image.block_size})")
+        partition = Partition(self.image, start, end-start, "UBI")
 
-        return Partition(self.image, start, end-start, "UBI")
+        ubi = self._create_ubi(partition)
+        partition.ubi_instances.append(ubi)
+
+        return partition
+
+    def _create_ubi(self, partition: Partition) -> UBI:
+        """
+        Creates an UBI instance for a Partition.
+        @param partition:
+        """
+        if find_signature(self.image.data, UBI_EC_HDR.__magic__, partition.offset) < 0:
+            ubiftlog.info(f"[!] Partition does not contain UBI instance.")
+            return
+
+        ubi = UBI(partition, 0, partition.len)
 
