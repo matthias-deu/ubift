@@ -44,12 +44,11 @@ class Image:
 
         full_partitions = self.partitions.copy()
         self.partitions.sort(key=lambda partition: partition.offset)
-
         for i,partition in enumerate(self.partitions):
             if i+1 >= len(self.partitions):
                 # Add 'unallocated' Partition at the end if necessary
-                if partition.offset + partition.len != len(self.data):
-                    end_partition = Partition(self, partition.offset + partition.len + 1, len(self.data) - (partition.offset + partition.len + 1), "Unallocated")
+                if partition.end != len(self.data) - 1:
+                    end_partition = Partition(self, partition.end + 1, len(self.data) - 1, "Unallocated")
                     full_partitions.append(end_partition)
                 break
             # Add 'unallocated' Partition at the start if necessary
@@ -57,10 +56,10 @@ class Image:
                 start_partition = Partition(self, 0, self.partitions[i].offset - 1, "Unallocated")
                 full_partitions.insert(0, start_partition)
             # Add 'unallocated' Partitions in between Partitions if necessary
-            if partition.offset + partition.len + 1 != self.partitions[i+1].offset:
-                end = self.partitions[i + 1].offset - 1
-                start = self.partitions[i].offset + self.partitions[i].len + 1
-                between_partition = Partition(self, start, end-start, "Unallocated")
+            if partition.end + 1 != self.partitions[i+1].offset:
+                start = partition.end + 1
+                end = self.partitions[i+1].offset - 1
+                between_partition = Partition(self, start, end, "Unallocated")
                 full_partitions.insert(full_partitions.index(partition)+1, between_partition)
 
         return full_partitions
@@ -142,16 +141,22 @@ class Partition:
     """
     A Partition represents an MTD-partition.
     """
-    def __init__(self, image: Image, offset: int, len: int, name: str):
+    def __init__(self, image: Image, offset: int, end: int, name: str):
         self._image = image
         self._offset = offset
-        self._len = len
+        self._end = end
         self._name = name
         self._ubi_instances = []
 
+        if len(self) % self.image.block_size != 0:
+            ubiftlog.info(f"[-] Partition {self.name} is not aligned to erase block size.")
+
         ubiftlog.info(
-            f"[!] Initialized Partition {self.offset} to {self.offset+self.len} "
-            f"(len: {self.len}, blocks: {((self.offset+self.len) - self.offset) // self.image.block_size})")
+            f"[!] Initialized Partition {self.offset} to {self.end} "
+            f"(len: {len(self)}, blocks: {(len(self)) // self.image.block_size})")
+
+    def __len__(self):
+        return self._end - self._offset + 1
 
     @property
     def ubi_instances(self):
@@ -166,8 +171,8 @@ class Partition:
         return self._offset
 
     @property
-    def len(self):
-        return self._len
+    def end(self):
+        return self._end
 
     @property
     def name(self):

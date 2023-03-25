@@ -23,6 +23,7 @@ def volumelayer_render(image: Image, outfd=sys.stdout) -> None:
 
     outfd.write(f"MTD Image\n\n")
     outfd.write(f"Size: {readable_size(len(image.data))}\n")
+
     outfd.write(f"Erase Block Size: {readable_size(image.block_size)}\n")
     outfd.write(f"Page Size: {readable_size(image.page_size)}\n")
 
@@ -30,13 +31,23 @@ def volumelayer_render(image: Image, outfd=sys.stdout) -> None:
     outfd.write(f"Pages per Erase Block: {image.block_size // image.page_size}\n")
     outfd.write("\n")
 
+
+    outfd.write(f"Units are in {readable_size(image.block_size)}-Erase Blocks\n")
     mtd_parts = image.get_full_partitions()
 
     outfd.write("\tStart\t\t\tEnd\t\t\tLength\t\t\tDescription\n")
     for i,partition in enumerate(mtd_parts):
         start = zpad(partition.offset // image.block_size, 10)
-        end = zpad((partition.offset+partition.len) // image.block_size, 10)
-        length = zpad(partition.len // image.block_size, 10)
+        end = zpad(partition.end // image.block_size, 10)
+        length = zpad(len(partition) // image.block_size, 10)
         outfd.write(f"{zpad(i, 3)}:\t{start}\t\t{end}\t\t{length}\t\t{partition.name}\n")
+
+    # print(float(58327040 / image.block_size))
+    # outfd.write("\tStart\t\t\tEnd\t\t\tLength\t\t\tDescription\n")
+    # for i,partition in enumerate(mtd_parts):
+    #     start = zpad(partition.offset, 10)
+    #     end = zpad(partition.end, 10)
+    #     length = zpad(len(partition), 10)
+    #     outfd.write(f"{zpad(i, 3)}:\t{start}\t\t{end}\t\t{length}\t\t{partition.name}\n")
 
 

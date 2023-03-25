@@ -43,7 +43,7 @@ class UBIPartitioner(Partitioner):
         partition = self._create_partition(image, 0)
         while partition is not None:
             partitions.append(partition)
-            partition = self._create_partition(image, partition.offset+partition.len+1)
+            partition = self._create_partition(image, partition.end+1)
 
         return partitions
 
@@ -59,10 +59,9 @@ class UBIPartitioner(Partitioner):
         current = start
         while image.data[current:current+4] == UBI_EC_HDR.__magic__:
             current += image.block_size
-        end = current
+        end = current-1
 
-        ubiftlog.info(f"[+] Found Partition with UBI at offset {start} to {end} (len: {end-start}, blocks: {(end-start) // image.block_size})")
-        partition = Partition(image, start, end-start, "UBI")
+        partition = Partition(image, start, end, "UBI")
 
         ubi = self._create_ubi(image, partition)
         partition.ubi_instances.append(ubi)
@@ -78,5 +77,5 @@ class UBIPartitioner(Partitioner):
             ubiftlog.info(f"[!] Partition does not contain UBI instance.")
             return
 
-        ubi = UBI(partition, 0, partition.len)
+        ubi = UBI(partition, 0, len(partition))
 

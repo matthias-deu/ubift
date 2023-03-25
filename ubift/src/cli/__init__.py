@@ -1,7 +1,7 @@
 import argparse
 import logging
 
-from ubift.src.cli.renderers import volumelayer_render
+from ubift.src.cli.renderer import volumelayer_render
 from ubift.src.framework.base.partitioner import UBIPartitioner
 from ubift.src.framework.disk_image_layer.mtd import Image
 
