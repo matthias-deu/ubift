@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import List
 
 from ubift.src.exception import UBIFTException
 from ubift.src.framework.base import find_signature
@@ -16,6 +19,7 @@ class Image:
         self._page_size = page_size if page_size > 0 else self._guess_page_size(data)
         self._block_size = block_size if block_size > 0 else self._guess_block_size(data)
         self._data = data if oob_size < 0 else Image.strip_oob(data, self.block_size, self.page_size, oob_size)
+        self._partitions = []
 
         if len(data) % block_size != 0:
             ubiftlog.error(
@@ -25,6 +29,45 @@ class Image:
                 f"[-] Invalid page_size (block_size: {block_size} not divisible by page_size {page_size})")
 
         ubiftlog.info(f"[!] Initialized Image (block_size:{self.block_size}, page_size:{self.page_size}, oob_size:{self.oob_size}, data_len:{len(self.data)})")
+
+    @property
+    def partitions(self):
+        return self._partitions
+
+    def get_full_partitions(self) -> List[Partition]:
+        """
+
+        Returns: Returns a list of Partitions that cover the full size of the Image. If a certain space is
+        not covered by a specific Partition in the Image, a temporary Partition is created to mark 'unallocated' space.
+
+        """
+
+        full_partitions = self.partitions.copy()
+        self.partitions.sort(key=lambda partition: partition.offset)
+
+        for i,partition in enumerate(self.partitions):
+            if i+1 >= len(self.partitions):
+                # Add 'unallocated' Partition at the end if necessary
+                if partition.offset + partition.len != len(self.data):
+                    end_partition = Partition(self, partition.offset + partition.len + 1, len(self.data) - (partition.offset + partition.len + 1), "Unallocated")
+                    full_partitions.append(end_partition)
+                break
+            # Add 'unallocated' Partition at the start if necessary
+            if i == 0 and (partition.offset != 0):
+                start_partition = Partition(self, 0, self.partitions[i].offset - 1, "Unallocated")
+                full_partitions.insert(0, start_partition)
+            # Add 'unallocated' Partitions in between Partitions if necessary
+            if partition.offset + partition.len + 1 != self.partitions[i+1].offset:
+                end = self.partitions[i + 1].offset - 1
+                start = self.partitions[i].offset + self.partitions[i].len + 1
+                between_partition = Partition(self, start, end-start, "Unallocated")
+                full_partitions.insert(full_partitions.index(partition)+1, between_partition)
+
+        return full_partitions
+    
+    @partitions.setter
+    def partitions(self, partitions: List[Partition]):
+        self._partitions = partitions
 
     @property
     def data(self):

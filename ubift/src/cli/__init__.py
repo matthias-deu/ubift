@@ -1,6 +1,7 @@
 import argparse
 import logging
 
+from ubift.src.cli.renderers import volumelayer_render
 from ubift.src.framework.base.partitioner import UBIPartitioner
 from ubift.src.framework.disk_image_layer.mtd import Image
 
@@ -55,7 +56,10 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
-            u = UBIPartitioner(t)
+            u = UBIPartitioner()
+            t.partitions = u.partition(t)
+
+            volumelayer_render(t)
 
             # ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
             # a = UBI_EC_HDR(data, ec_hdr_offset)

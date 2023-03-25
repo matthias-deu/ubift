@@ -65,15 +65,12 @@ class UBI:
         volume_table = {} # Maps volume_number to a list of blocks belonging to it
         image = self._partition.image
         for peb_num,offset in enumerate(range(0, self._len, image.block_size)):
-            #leb = LEB(self, peb_num)
-            ec_hdr = UBI_EC_HDR(image.data, self.partition.offset+self._offset+offset)
-            vid_hdr_offset = self.partition.offset+self._offset+offset+ec_hdr.vid_hdr_offset
-            if image.data[vid_hdr_offset:vid_hdr_offset+4] == UBI_VID_HDR.__magic__:
-                vid_hdr = UBI_VID_HDR(image.data, vid_hdr_offset)
-                if vid_hdr.vol_id not in volume_table:
-                    volume_table[vid_hdr.vol_id] = [peb_num]
+            leb = LEB(self, peb_num)
+            if leb.is_mapped():
+                if leb.vid_hdr.vol_id not in volume_table:
+                    volume_table[leb.vid_hdr.vol_id] = [peb_num]
                 else:
-                    volume_table[vid_hdr.vol_id].append(peb_num)
+                    volume_table[leb.vid_hdr.vol_id].append(peb_num)
 
         if VTBL_VOLUME_ID not in volume_table:
             ubiftlog.error(
