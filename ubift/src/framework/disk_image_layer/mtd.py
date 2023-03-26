@@ -19,6 +19,7 @@ class Image:
         self._page_size = page_size if page_size > 0 else self._guess_page_size(data)
         self._block_size = block_size if block_size > 0 else self._guess_block_size(data)
         self._data = data if oob_size < 0 else Image.strip_oob(data, self.block_size, self.page_size, oob_size)
+        #self._partitions = Partition(self, 0, len(self.data) - 1, "Unallocated") if partitioner is None else partitioner.partition(self)
         self._partitions = []
 
         if len(data) % block_size != 0:
@@ -32,6 +33,8 @@ class Image:
 
     @property
     def partitions(self):
+        if len(self._partitions) == 0:
+            return Partition(self, 0, len(self.data)-1, "Unallocated")
         return self._partitions
 
     def get_full_partitions(self) -> List[Partition]:
@@ -157,6 +160,10 @@ class Partition:
 
     def __len__(self):
         return self._end - self._offset + 1
+
+    @property
+    def data(self):
+        return self.image.data[self.offset:self.end+1]
 
     @property
     def ubi_instances(self):
