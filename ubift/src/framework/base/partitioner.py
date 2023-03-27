@@ -64,7 +64,7 @@ class UBIPartitioner(Partitioner):
         partition = Partition(image, start, end, "UBI")
 
         ubi = self._create_ubi(image, partition)
-        partition.ubi_instances.append(ubi)
+        partition.ubi_instance = ubi
 
         return partition
 
@@ -77,5 +77,7 @@ class UBIPartitioner(Partitioner):
             ubiftlog.info(f"[!] Partition does not contain UBI instance.")
             return
 
-        ubi = UBI(partition, 0, len(partition))
+        ubi = UBI(partition, 0, partition.end - partition.offset)
+
+        return ubi
 

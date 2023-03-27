@@ -12,7 +12,7 @@ ubiftlog = logging.getLogger(__name__)
 
 
 class UBIVolume:
-    def __init__(self, vol_num: int, blocks: List[int], vtbl_record: UBI_VTBL_RECORD):
+    def __init__(self, vol_num: int, blocks: List['LEB'], vtbl_record: UBI_VTBL_RECORD):
         self._vol_num = vol_num
         self._blocks = blocks
         self._vtbl_record = vtbl_record
@@ -23,24 +23,31 @@ class UBIVolume:
 class UBI:
     """
     Represents an UBI instance which can have zero or more UBIVolumes.
+    The 'offset' and 'end'-fields are relative to the Partition.
     """
-    def __init__(self, partition: Partition, offset: int = -1, len: int = -1):
+    def __init__(self, partition: Partition, offset: int = -1, end: int = -1):
         self._partition = partition
         self._offset = offset if offset >= 0 else 0
-        self._len = len if len >= 0 else partition.len
+        self._end = end if end >= 0 else (partition.end - partition.offset)
         self._volumes = []
 
         if self._validate() == False:
-            ubiftlog.error(f"[-] Invalid UBI instance for Partition {partition} at offset {self._offset}, len: {self._len}")
+            ubiftlog.error(f"[-] Invalid UBI instance for Partition {partition} at offset {self._offset}, end: {self._end}")
 
         # Populates self._volumes by searching and parsing the layout volume and its vtbl_records
         self._parse_volumes()
 
-        ubiftlog.info(f"[!] Initialized UBI instance for Partition {partition} (offset: {offset}, len:{len})")
+        ubiftlog.info(f"[!] Initialized UBI instance for Partition {partition} (offset: {offset}, end:{end})")
+
+    def __len__(self):
+        return self._end - self._offset + 1
 
     @property
     def offset(self):
         return self._offset
+
+    def end(self):
+        return self._end
 
     @property
     def volumes(self):
@@ -56,21 +63,21 @@ class UBI:
         @return: True if this is a valid UBI instance, otherwise False.
         """
         image = self._partition.image
-        for i in range(0, self._len, image.block_size):
+        for i in range(0, len(self), image.block_size):
             if image.data[self.partition.offset+self._offset+i:self.partition.offset+self._offset+i+4] != UBI_EC_HDR.__magic__:
                 return False
         return True
 
-    def _parse_volumes(self):
+    def _parse_volumes(self) -> None:
         volume_table = {} # Maps volume_number to a list of blocks belonging to it
         image = self._partition.image
-        for peb_num,offset in enumerate(range(0, self._len, image.block_size)):
+        for peb_num,offset in enumerate(range(0, len(self), image.block_size)):
             leb = LEB(self, peb_num)
             if leb.is_mapped():
                 if leb.vid_hdr.vol_id not in volume_table:
-                    volume_table[leb.vid_hdr.vol_id] = [peb_num]
+                    volume_table[leb.vid_hdr.vol_id] = [leb]
                 else:
-                    volume_table[leb.vid_hdr.vol_id].append(peb_num)
+                    volume_table[leb.vid_hdr.vol_id].append(leb)
 
         if VTBL_VOLUME_ID not in volume_table:
             ubiftlog.error(
@@ -78,9 +85,9 @@ class UBI:
         else:
             self._parse_vtbl_records(volume_table)
 
-    def _parse_vtbl_records(self, block_table: dict[int, List[int]]) -> None:
+    def _parse_vtbl_records(self, block_table: dict[int, List['LEB']]) -> None:
         vtbl_blocks = block_table[VTBL_VOLUME_ID]
-        offset = self._partition.offset + self._offset + vtbl_blocks[0] * self.partition.image.block_size
+        offset = self._partition.offset + self._offset + vtbl_blocks[0]._peb_num * self.partition.image.block_size
         ec_hdr = UBI_EC_HDR(self._partition.image.data, offset)
         data_offset = ec_hdr.data_offset
 
@@ -90,7 +97,7 @@ class UBI:
                 vol = self._create_volume(i, vtbl_record, block_table)
                 self.volumes.append(vol)
 
-    def _create_volume(self, vol_num: int, vtbl_record: UBI_VTBL_RECORD, block_table: dict[int, List[int]]) -> UBIVolume:
+    def _create_volume(self, vol_num: int, vtbl_record: UBI_VTBL_RECORD, block_table: dict[int, List['LEB']]) -> UBIVolume:
         vol = UBIVolume(vol_num, block_table[vol_num], vtbl_record)
 
         ubiftlog.info(
@@ -106,6 +113,9 @@ class LEB():
         image = ubi_instance.partition.image
         self._ec_hdr = UBI_EC_HDR(image.data, ubi_instance.partition.offset + ubi_instance.offset + peb_num * image.block_size)
         self._vid_hdr = UBI_VID_HDR(image.data, ubi_instance.partition.offset + ubi_instance.offset + peb_num * image.block_size + self.ec_hdr.vid_hdr_offset)
+
+    def __repr__(self):
+        return f"{self.leb_num} -> {self._peb_num}"
 
     @property
     def size(self) -> int:

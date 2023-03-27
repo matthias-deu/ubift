@@ -149,7 +149,7 @@ class Partition:
         self._offset = offset
         self._end = end
         self._name = name
-        self._ubi_instances = []
+        self._ubi_instance = None
 
         if len(self) % self.image.block_size != 0:
             ubiftlog.info(f"[-] Partition {self.name} is not aligned to erase block size.")
@@ -166,8 +166,12 @@ class Partition:
         return self.image.data[self.offset:self.end+1]
 
     @property
-    def ubi_instances(self):
-        return self._ubi_instances
+    def ubi_instance(self):
+        return self._ubi_instance
+
+    @ubi_instance.setter
+    def ubi_instance(self, value):
+        self._ubi_instance = value
 
     @property
     def image(self):

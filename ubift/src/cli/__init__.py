@@ -3,7 +3,7 @@ import errno
 import logging
 import sys
 
-from ubift.src.cli.renderer import render_image
+from ubift.src.cli.renderer import render_image, render_ubi_instances
 from ubift.src.framework.base.partitioner import UBIPartitioner
 from ubift.src.framework.disk_image_layer.mtd import Image
 
@@ -42,6 +42,11 @@ class CommandLine:
         blkcat.add_argument("index", type=int)
         blkcat.set_defaults(func=self.blkcat)
 
+        # ubils
+        ubils = subparsers.add_parser("ubils", help="Lists all instances of UBI and their volumes.")
+        ubils.add_argument("input")
+        ubils.set_defaults(func=self.ubils)
+
         args = parser.parse_args()
         args.func(args)
 
@@ -66,6 +71,18 @@ class CommandLine:
                 except IOError as e:
                     if e.errno == errno.EPIPE:
                         pass
+
+    def ubils(self, args):
+        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+
+        input = args.input
+        with open(input, "rb") as f:
+            data = f.read()
+
+            t = Image(data, -1, -1, -1)
+            t.partitions = UBIPartitioner().partition(t)
+
+            render_ubi_instances(t)
 
 
     def mmls(self, args):
