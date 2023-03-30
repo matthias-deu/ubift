@@ -2,6 +2,7 @@ import logging
 import sys
 
 from ubift.src.framework.disk_image_layer.mtd import Image
+from ubift.src.framework.volume_layer.ubi import UBIVolume
 from ubift.src.framework.volume_layer.ubi_structs import UBI_VTBL_RECORD
 from ubift.src.logging import ubiftlog
 
@@ -49,9 +50,18 @@ def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
             outfd.write(f"Volume {vol._vol_num}\n")
             outfd.write(f"Name: {vol.name}\n")
             render_ubi_vtbl_record(vol._vtbl_record, outfd)
-            vol._blocks.sort(key=lambda leb: leb.leb_num)
-            outfd.write(f"LEBs (lnum->PEB): {vol._blocks}\n")
         outfd.write(f"\n")
+
+
+def render_lebs(vol: UBIVolume, outfd=sys.stdout):
+    outfd.write(f"UBI Volume Index:{vol._vol_num} Name:{vol.name}\n\n")
+
+    outfd.write("LEB\t--->\tPEB\n")
+
+    vol._blocks.sort(key=lambda leb: leb.leb_num)
+    for leb in vol._blocks:
+        outfd.write(f"{zpad(leb.leb_num,5)}\t--->\t{zpad(leb._peb_num, 5)}\n")
+
 
 def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
     outfd.write(f"Reserved PEBs: {vtbl_record.reserved_pebs}\n")

@@ -59,7 +59,7 @@ class UBI:
 
     def _validate(self) -> bool:
         """
-        Checks if this is a valid UBI instance
+        Checks if this is a valid and non-faulty UBI instance by making sure that every PEB has an erase counter header.
         @return: True if this is a valid UBI instance, otherwise False.
         """
         image = self._partition.image
@@ -69,7 +69,7 @@ class UBI:
         return True
 
     def _parse_volumes(self) -> None:
-        volume_table = {} # Maps volume_number to a list of blocks belonging to it
+        volume_table = {} # Maps volume_number to a list of LEBS belonging to it
         image = self._partition.image
         for peb_num,offset in enumerate(range(0, len(self), image.block_size)):
             leb = LEB(self, peb_num)
@@ -78,6 +78,8 @@ class UBI:
                     volume_table[leb.vid_hdr.vol_id] = [leb]
                 else:
                     volume_table[leb.vid_hdr.vol_id].append(leb)
+
+        # TODO: Should this also create volumes from internal volumes such as the layout volume and fastmap volumes?
 
         if VTBL_VOLUME_ID not in volume_table:
             ubiftlog.error(
