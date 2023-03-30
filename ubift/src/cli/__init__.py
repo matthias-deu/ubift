@@ -61,8 +61,18 @@ class CommandLine:
         lebcat.add_argument("leb", help="Number of the logical erase block. Use 'lebls' to determine LEBs.", type=int)
         lebcat.set_defaults(func=self.lebcat)
 
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat]
+        for command in commands:
+            self.add_default_image_args(command)
+
         args = parser.parse_args()
         args.func(args)
+
+    def add_default_image_args(self, parser: argparse.ArgumentParser):
+        parser.add_argument("--oob", help="Out of Bounds size in Bytes. If specified, will automatically extract OOB.",
+                            type=int)
+        parser.add_argument("--pagesize", help="Page size in Bytes. If not specified, will try to guess the size based on UBI headers.", type=int)
+        parser.add_argument("--blocksize", help="Block size in Bytes. If not specified, will try to guess the block size based on UBI headers.", type=int)
 
     def lebcat(self, args):
         logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
@@ -156,10 +166,14 @@ class CommandLine:
         logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
 
         input = args.input
+        oob_size = args.oob if args.oob is not None and args.oob > 0 else -1
+        page_size = args.pagesize if args.pagesize is not None and args.pagesize > 0 else -1
+        block_size = args.blocksize if args.blocksize is not None and args.blocksize > 0 else -1
+
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
+            t = Image(data, block_size, page_size, oob_size)
             t.partitions = UBIPartitioner().partition(t)
 
             render_image(t)

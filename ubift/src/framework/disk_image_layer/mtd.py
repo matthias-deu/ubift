@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import List
 
@@ -19,10 +20,9 @@ class Image:
         self._page_size = page_size if page_size > 0 else self._guess_page_size(data)
         self._block_size = block_size if block_size > 0 else self._guess_block_size(data)
         self._data = data if oob_size < 0 else Image.strip_oob(data, self.block_size, self.page_size, oob_size)
-        #self._partitions = Partition(self, 0, len(self.data) - 1, "Unallocated") if partitioner is None else partitioner.partition(self)
         self._partitions = []
 
-        if len(data) % block_size != 0:
+        if len(self._data) % block_size != 0:
             ubiftlog.error(
                 f"[-] Invalid block_size (data_len: {len(self.data)} not divisible by block_size {block_size})")
         if block_size % page_size != 0:
@@ -132,13 +132,10 @@ class Image:
         blocks = len(data) // block_size
 
         stripped_data = bytearray()
-        for block in range(blocks):
-            ptr = block * 64 * page_size
-            for page in range(pages):
-                stripped_data += data[ptr:ptr+page_size]
-                ptr += oob_size
+        for page in range(0, len(data), 2112):
+            stripped_data += data[page:page + page_size]
 
-        return stripped_data
+        return bytes(stripped_data)
 
 class Partition:
     """
