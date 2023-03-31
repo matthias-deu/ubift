@@ -3,9 +3,9 @@ import errno
 import logging
 import sys
 
-from ubift.src.cli.renderer import render_image, render_ubi_instances, render_lebs
-from ubift.src.framework.base.partitioner import UBIPartitioner
-from ubift.src.framework.disk_image_layer.mtd import Image
+from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image
+from ubift.framework.mtd import Image
+from ubift.framework.partitioner import UBIPartitioner
 
 rootlog = logging.getLogger()
 console = logging.StreamHandler()

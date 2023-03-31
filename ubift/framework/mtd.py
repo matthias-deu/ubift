@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import List
 
-from ubift.src.exception import UBIFTException
-from ubift.src.framework.base import find_signature
-from ubift.src.framework.volume_layer.ubi_structs import UBI_EC_HDR, UBI_VID_HDR
+from ubift.exception import UBIFTException
+from ubift.framework.structs.ubi_structs import UBI_EC_HDR
+from ubift.framework.util import find_signature
 
 ubiftlog = logging.getLogger(__name__)
 

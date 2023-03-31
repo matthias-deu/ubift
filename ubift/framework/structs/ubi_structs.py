@@ -1,6 +1,6 @@
 import cstruct as cstruct
-from cstruct import MemCStruct
-from ubift.src.framework.structs import MemCStructExt
+
+from ubift.framework.structs.structs import MemCStructExt
 
 VTBL_VOLUME_ID = 0x7fffefff
 

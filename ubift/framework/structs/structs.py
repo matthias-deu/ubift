@@ -1,7 +1,6 @@
-import binascii
-from typing import Dict, Any
-
 import cstruct as cstruct
+
+from typing import Dict, Any
 
 class MemCStructExt(cstruct.MemCStruct):
     def __init__(self, data=None, offset=None, **kargs: Dict[str, Any]):

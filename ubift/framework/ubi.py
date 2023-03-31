@@ -1,14 +1,8 @@
-import os
 from typing import List
 
-import cstruct
-import struct
-import logging
-
-from ubift.src.framework.disk_image_layer.mtd import Partition
-from ubift.src.framework.volume_layer.ubi_structs import UBI_EC_HDR, UBI_VID_HDR, VTBL_VOLUME_ID, UBI_VTBL_RECORD
-
-ubiftlog = logging.getLogger(__name__)
+from ubift.framework.mtd import Partition
+from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD, UBI_EC_HDR, VTBL_VOLUME_ID, UBI_VID_HDR
+from ubift.logging import ubiftlog
 
 
 class UBIVolume:

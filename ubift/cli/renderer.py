@@ -1,10 +1,9 @@
 import logging
 import sys
 
-from ubift.src.framework.disk_image_layer.mtd import Image
-from ubift.src.framework.volume_layer.ubi import UBIVolume
-from ubift.src.framework.volume_layer.ubi_structs import UBI_VTBL_RECORD
-from ubift.src.logging import ubiftlog
+from ubift.framework.mtd import Image
+from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
+from ubift.framework.ubi import UBIVolume
 
 
 def readable_size(num, suffix="B"):

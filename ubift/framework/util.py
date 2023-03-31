@@ -1,6 +1,6 @@
 from typing import List
 
-from ubift.src.logging import ubiftlog
+from ubift.logging import ubiftlog
 
 def find_signatures(data: bytes, signature: bytes) -> List[int]:
     """

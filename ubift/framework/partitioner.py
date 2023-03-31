@@ -2,10 +2,10 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List
 
-from ubift.src.framework.base import find_signature
-from ubift.src.framework.disk_image_layer.mtd import Image, Partition
-from ubift.src.framework.volume_layer.ubi import UBI
-from ubift.src.framework.volume_layer.ubi_structs import UBI_EC_HDR
+from ubift.framework.mtd import Partition, Image
+from ubift.framework.structs.ubi_structs import UBI_EC_HDR
+from ubift.framework.ubi import UBI
+from ubift.framework.util import find_signature
 
 ubiftlog = logging.getLogger(__name__)
 
