@@ -4,7 +4,6 @@ from typing import List
 
 from ubift.framework.mtd import Partition, Image
 from ubift.framework.structs.ubi_structs import UBI_EC_HDR
-from ubift.framework.ubi import UBI
 from ubift.framework.util import find_signature
 
 ubiftlog = logging.getLogger(__name__)
@@ -12,7 +11,7 @@ ubiftlog = logging.getLogger(__name__)
 # When the UBIPartitioner is used, this constant will be used as Description of the Partition to mark it as an UBI instance
 UBIPARTITIONER_UBI_DESCRIPTION = "UBI"
 # When the UBIPartitioner is used, this constant will be used as Description of Partitions that do not contain UBI instances
-UBIPARTITIONER_UNALLOCATED = "Unallocated"
+UBIPARTITIONER_UNALLOCATED_DESCRIPTION = "Unallocated"
 
 class Partitioner(ABC):
     """
@@ -31,6 +30,8 @@ class Partitioner(ABC):
         """
         'Fills' the partitions created by the Partitioner so that the full size of the Image is covered. If a certain space is
         not covered by a specific Partition in the Image, a temporary Partition is created to mark 'unallocated' space.
+
+        Example:  [free space] [UBI] [UBI] [free space] will be filled to [UNALLOCATED] [UBI] [UBI] [UNALLOCATED]
         """
 
         filled_partitions = partitions.copy()
@@ -40,19 +41,18 @@ class Partitioner(ABC):
             if i+1 >= len(partitions):
                 # Add 'unallocated' Partition at the end if necessary
                 if partition.end != len(image.data) - 1:
-                    end_partition = Partition(image, partition.end + 1, len(image.data) - 1, UBIPARTITIONER_UNALLOCATED)
+                    end_partition = Partition(image, partition.end + 1, len(image.data) - 1, UBIPARTITIONER_UNALLOCATED_DESCRIPTION)
                     filled_partitions.append(end_partition)
                 break
             # Add 'unallocated' Partition at the start if necessary
             if i == 0 and (partition.offset != 0):
-                print("STARTTT")
-                start_partition = Partition(image, 0, partitions[i].offset - 1, UBIPARTITIONER_UNALLOCATED)
+                start_partition = Partition(image, 0, partitions[i].offset - 1, UBIPARTITIONER_UNALLOCATED_DESCRIPTION)
                 filled_partitions.insert(0, start_partition)
             # Add 'unallocated' Partitions in between Partitions if necessary
             if partition.end + 1 != partitions[i+1].offset:
                 start = partition.end + 1
                 end = partitions[i+1].offset - 1
-                between_partition = Partition(image, start, end, UBIPARTITIONER_UNALLOCATED)
+                between_partition = Partition(image, start, end, UBIPARTITIONER_UNALLOCATED_DESCRIPTION)
                 filled_partitions.insert(filled_partitions.index(partition)+1, between_partition)
 
         return filled_partitions

@@ -89,9 +89,20 @@ class CommandLine:
                             type=int)
         parser.add_argument("--pagesize", help="Page size in Bytes. If not specified, will try to guess the size based on UBI headers.", type=int)
         parser.add_argument("--blocksize", help="Block size in Bytes. If not specified, will try to guess the block size based on UBI headers.", type=int)
+        parser.add_argument("--verbose", help="Outputs a lot more debug information", default=False, action="store_true")
+
+    @classmethod
+    def verbose(cls, args: argparse.Namespace):
+        """
+        Checks if --verbose is set True, if yes, will enable logging.
+        :param args:
+        :return:
+        """
+        if hasattr(args, "verbose") and args.verbose is False:
+            logging.disable(logging.INFO)
 
     def lebcat(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+        CommandLine.verbose(args)
 
         input = args.input
         ubi_offset = args.offset
@@ -122,7 +133,7 @@ class CommandLine:
             rootlog.error("[-] Offset or volume name could not be found. It is also possible that the LEB is not available or not mapped.")
 
     def lebls(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+        CommandLine.verbose(args)
 
         input = args.input
         ubi_offset = args.offset
@@ -146,7 +157,7 @@ class CommandLine:
 
 
     def pebcat(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+        CommandLine.verbose(args)
 
         input = args.input
         block_num = args.index
@@ -168,7 +179,7 @@ class CommandLine:
                         pass
 
     def ubils(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+        CommandLine.verbose(args)
 
         input = args.input
         with open(input, "rb") as f:
@@ -181,8 +192,8 @@ class CommandLine:
 
             render_ubi_instances(t)
 
-    def fsstat(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+    def fsstat(self, args: argparse.Namespace):
+        CommandLine.verbose(args)
 
         input = args.input
         with open(input, "rb") as f:
@@ -198,11 +209,10 @@ class CommandLine:
             sb_data = ubi_vol._blocks[0].data
 
             sb = UBIFS_SB_NODE(sb_data, 0)
-            print(len(sb_data))
             print(sb)
 
     def mtdls(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+        CommandLine.verbose(args)
 
         input = args.input
         oob_size = args.oob if args.oob is not None and args.oob > 0 else -1
@@ -218,7 +228,7 @@ class CommandLine:
             render_image(t)
 
     def mtdcat(self, args):
-        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+        CommandLine.verbose(args)
 
         input = args.input
         num = args.index
