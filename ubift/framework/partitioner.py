@@ -9,6 +9,11 @@ from ubift.framework.util import find_signature
 
 ubiftlog = logging.getLogger(__name__)
 
+# When the UBIPartitioner is used, this constant will be used as Description of the Partition to mark it as an UBI instance
+UBIPARTITIONER_UBI_DESCRIPTION = "UBI"
+# When the UBIPartitioner is used, this constant will be used as Description of Partitions that do not contain UBI instances
+UBIPARTITIONER_UNALLOCATED = "Unallocated"
+
 class Partitioner(ABC):
     """
     A Partitoner partitions a raw Image. Sub-classes do this based
@@ -61,23 +66,7 @@ class UBIPartitioner(Partitioner):
             current += image.block_size
         end = current-1
 
-        partition = Partition(image, start, end, "UBI")
-
-        ubi = self._create_ubi(image, partition)
-        partition.ubi_instance = ubi
+        partition = Partition(image, start, end, UBIPARTITIONER_UBI_DESCRIPTION)
 
         return partition
-
-    def _create_ubi(self, image: Image, partition: Partition) -> UBI:
-        """
-        Creates an UBI instance for a Partition.
-        @param partition:
-        """
-        if find_signature(image.data, UBI_EC_HDR.__magic__, partition.offset) < 0:
-            ubiftlog.info(f"[!] Partition does not contain UBI instance.")
-            return
-
-        ubi = UBI(partition, 0, partition.end - partition.offset)
-
-        return ubi
 

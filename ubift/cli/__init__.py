@@ -6,6 +6,8 @@ import sys
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image
 from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
+from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE
+from ubift.framework.ubi import UBI
 
 rootlog = logging.getLogger()
 console = logging.StreamHandler()
@@ -27,48 +29,62 @@ class CommandLine:
 
         # mtdls
         mtdls = subparsers.add_parser("mtdls", help="Lists information about all available Partitions, including UBI instances.")
-        mtdls.add_argument("input")
+        mtdls.add_argument("input", help="Input flash memory dump.")
         mtdls.set_defaults(func=self.mtdls)
 
         # mtdcat
         mtdcat = subparsers.add_parser("mtdcat", help="Outputs the binary data of an MTD partition, given by its index.")
-        mtdcat.add_argument("input")
+        mtdcat.add_argument("input", help="Input flash memory dump.")
         mtdcat.add_argument("index", type=int)
         mtdcat.set_defaults(func=self.mtdcat)
 
         # pebcat
         pebcat = subparsers.add_parser("pebcat", help="Outputs a specific phyiscal erase block.")
-        pebcat.add_argument("input")
+        pebcat.add_argument("input", help="Input flash memory dump.")
         pebcat.add_argument("index", type=int)
         pebcat.set_defaults(func=self.pebcat)
 
         # ubils
         ubils = subparsers.add_parser("ubils", help="Lists all instances of UBI and their volumes.")
-        ubils.add_argument("input")
+        ubils.add_argument("input", help="Input flash memory dump.")
         ubils.set_defaults(func=self.ubils)
 
         # lebls
         lebls = subparsers.add_parser("lebls", help="Lists all mapped LEBs of a specific UBI volume.")
-        lebls.add_argument("input")
+        lebls.add_argument("input", help="Input flash memory dump.")
         lebls.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
         lebls.add_argument("vol_name", help="Name of the UBI volume.", type=str)
         lebls.set_defaults(func=self.lebls)
 
+        # lebcat
         lebcat = subparsers.add_parser("lebcat", help="Outputs a specific mapped logical erase block of a specified UBI volume.")
-        lebcat.add_argument("input")
+        lebcat.add_argument("input", help="Input flash memory dump.")
         lebcat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
         lebcat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
         lebcat.add_argument("leb", help="Number of the logical erase block. Use 'lebls' to determine LEBs.", type=int)
         lebcat.set_defaults(func=self.lebcat)
 
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat]
+        # fsstat
+        fsstat = subparsers.add_parser("fsstat", help="Outputs information regarding the file-system in a specific UBI volume.")
+        fsstat.add_argument("input", help="Input flash memory dump.")
+        fsstat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        fsstat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        fsstat.set_defaults(func=self.fsstat)
+
+        # Adds default arguments such as --blocksize to all previously defined commands
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fsstat]
         for command in commands:
             self.add_default_image_args(command)
 
         args = parser.parse_args()
         args.func(args)
 
-    def add_default_image_args(self, parser: argparse.ArgumentParser):
+    def add_default_image_args(self, parser: argparse.ArgumentParser) -> None:
+        """
+        Adds default arguments to a Parser that are commonly needed, such as defining the block- or pagesize.
+        :param parser: Parser that will have common arguments added
+        :return:
+        """
         parser.add_argument("--oob", help="Out of Bounds size in Bytes. If specified, will automatically extract OOB.",
                             type=int)
         parser.add_argument("--pagesize", help="Page size in Bytes. If not specified, will try to guess the size based on UBI headers.", type=int)
@@ -90,6 +106,7 @@ class CommandLine:
 
             for part in t.partitions:
                 if ubi_offset == (part.offset // t.block_size):
+                    ubi = UBI(part)
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
                             for leb in ubi_vol._blocks:
@@ -119,6 +136,7 @@ class CommandLine:
 
             for part in t.partitions:
                 if ubi_offset == (part.offset // t.block_size):
+                    ubi = UBI(part)
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
                             render_lebs(ubi_vol)
@@ -158,9 +176,30 @@ class CommandLine:
 
             t = Image(data, -1, -1, -1)
             t.partitions = UBIPartitioner().partition(t)
+            for partition in t.partitions:
+                ubi = UBI(partition)
 
             render_ubi_instances(t)
 
+    def fsstat(self, args):
+        logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed
+
+        input = args.input
+        with open(input, "rb") as f:
+            data = f.read()
+
+            t = Image(data, -1, -1, -1)
+            t.partitions = UBIPartitioner().partition(t)
+
+            for partition in t.partitions:
+                ubi = UBI(partition)
+
+            ubi_vol = t.partitions[0].ubi_instance.volumes[0] # linux
+            sb_data = ubi_vol._blocks[0].data
+
+            sb = UBIFS_SB_NODE(sb_data, 0)
+            print(len(sb_data))
+            print(sb)
 
     def mtdls(self, args):
         logging.disable(logging.INFO)  # TODO: Remove this and add a -verbose parameter to enable logging if needed

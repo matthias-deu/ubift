@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from typing import List
 
-from ubift.framework.mtd import Partition
+from ubift.framework.mtd import Partition, Image
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD, UBI_EC_HDR, VTBL_VOLUME_ID, UBI_VID_HDR
+from ubift.framework.util import find_signature
 from ubift.logging import ubiftlog
 
 
@@ -32,6 +35,8 @@ class UBI:
         self._parse_volumes()
 
         ubiftlog.info(f"[!] Initialized UBI instance for Partition {partition} (offset: {offset}, end:{end})")
+
+        self._partition.ubi_instance = self
 
     def __len__(self):
         return self._end - self._offset + 1
