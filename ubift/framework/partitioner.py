@@ -26,6 +26,37 @@ class Partitioner(ABC):
     def partition(self, image: Image) -> List[Partition]:
         pass
 
+    @classmethod
+    def _fill_partitions(cls, image: Image, partitions: List[Partition]) -> List[Partition]:
+        """
+        'Fills' the partitions created by the Partitioner so that the full size of the Image is covered. If a certain space is
+        not covered by a specific Partition in the Image, a temporary Partition is created to mark 'unallocated' space.
+        """
+
+        filled_partitions = partitions.copy()
+        filled_partitions.sort(key=lambda _partition: _partition.offset)
+
+        for i, partition in enumerate(partitions):
+            if i+1 >= len(partitions):
+                # Add 'unallocated' Partition at the end if necessary
+                if partition.end != len(image.data) - 1:
+                    end_partition = Partition(image, partition.end + 1, len(image.data) - 1, UBIPARTITIONER_UNALLOCATED)
+                    filled_partitions.append(end_partition)
+                break
+            # Add 'unallocated' Partition at the start if necessary
+            if i == 0 and (partition.offset != 0):
+                print("STARTTT")
+                start_partition = Partition(image, 0, partitions[i].offset - 1, UBIPARTITIONER_UNALLOCATED)
+                filled_partitions.insert(0, start_partition)
+            # Add 'unallocated' Partitions in between Partitions if necessary
+            if partition.end + 1 != partitions[i+1].offset:
+                start = partition.end + 1
+                end = partitions[i+1].offset - 1
+                between_partition = Partition(image, start, end, UBIPARTITIONER_UNALLOCATED)
+                filled_partitions.insert(filled_partitions.index(partition)+1, between_partition)
+
+        return filled_partitions
+
 
 class UBIPartitioner(Partitioner):
     """
@@ -35,7 +66,7 @@ class UBIPartitioner(Partitioner):
     def __init__(self):
         super().__init__()
 
-    def partition(self, image: Image) -> List[Partition]:
+    def partition(self, image: Image, fill_partitions: bool = True) -> List[Partition]:
         """
         Partitions the Image based on UBI instances. Will try to create one Partition per UBI instance.
         """
@@ -49,6 +80,9 @@ class UBIPartitioner(Partitioner):
         while partition is not None:
             partitions.append(partition)
             partition = self._create_partition(image, partition.end+1)
+
+        if fill_partitions:
+            partitions = Partitioner._fill_partitions(image, partitions)
 
         return partitions
 

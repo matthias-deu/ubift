@@ -102,7 +102,7 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t)
+            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
 
             for part in t.partitions:
                 if ubi_offset == (part.offset // t.block_size):
@@ -132,7 +132,7 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t)
+            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
 
             for part in t.partitions:
                 if ubi_offset == (part.offset // t.block_size):
@@ -175,7 +175,7 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t)
+            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
             for partition in t.partitions:
                 ubi = UBI(partition)
 
@@ -189,7 +189,7 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t)
+            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
 
             for partition in t.partitions:
                 ubi = UBI(partition)
@@ -213,7 +213,7 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, block_size, page_size, oob_size)
-            t.partitions = UBIPartitioner().partition(t)
+            t.partitions = UBIPartitioner().partition(t, fill_partitions=True)
 
             render_image(t)
 
@@ -227,14 +227,13 @@ class CommandLine:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t)
-            all_parts  = t.get_full_partitions()
+            t.partitions = UBIPartitioner().partition(t, fill_partitions=True)
 
-            if num < 0 or num >= len(all_parts):
+            if num < 0 or num >= len(t.partitions):
                 rootlog.error("[-] Invalid Partition index.")
             else:
                 try:
-                    sys.stdout.buffer.write(all_parts[num].data)
+                    sys.stdout.buffer.write(t.partitions[num].data)
                 except IOError as e:
                     if e.errno == errno.EPIPE:
                         pass

@@ -84,7 +84,7 @@ def render_image(image: Image, outfd=sys.stdout) -> None:
     outfd.write("\n")
 
     outfd.write(f"Units are in {readable_size(image.block_size)}-Erase Blocks\n")
-    mtd_parts = image.get_full_partitions()
+    mtd_parts = image.partitions
 
     outfd.write("\tStart\t\t\tEnd\t\t\tLength\t\t\tDescription\n")
     for i, partition in enumerate(mtd_parts):

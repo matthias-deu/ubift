@@ -31,40 +31,10 @@ class Image:
         ubiftlog.info(f"[!] Initialized Image (block_size:{self.block_size}, page_size:{self.page_size}, oob_size:{self.oob_size}, data_len:{len(self.data)})")
 
     @property
-    def partitions(self):
+    def partitions(self) -> List[Partition]:
         if len(self._partitions) == 0:
-            return Partition(self, 0, len(self.data)-1, "Unallocated")
+            return [Partition(self, 0, len(self.data)-1, "Unallocated")]
         return self._partitions
-
-    def get_full_partitions(self) -> List[Partition]:
-        """
-
-        Returns: Returns a list of Partitions that cover the full size of the Image. If a certain space is
-        not covered by a specific Partition in the Image, a temporary Partition is created to mark 'unallocated' space.
-
-        """
-
-        full_partitions = self.partitions.copy()
-        self.partitions.sort(key=lambda partition: partition.offset)
-        for i,partition in enumerate(self.partitions):
-            if i+1 >= len(self.partitions):
-                # Add 'unallocated' Partition at the end if necessary
-                if partition.end != len(self.data) - 1:
-                    end_partition = Partition(self, partition.end + 1, len(self.data) - 1, "Unallocated")
-                    full_partitions.append(end_partition)
-                break
-            # Add 'unallocated' Partition at the start if necessary
-            if i == 0 and (partition.offset != 0):
-                start_partition = Partition(self, 0, self.partitions[i].offset - 1, "Unallocated")
-                full_partitions.insert(0, start_partition)
-            # Add 'unallocated' Partitions in between Partitions if necessary
-            if partition.end + 1 != self.partitions[i+1].offset:
-                start = partition.end + 1
-                end = self.partitions[i+1].offset - 1
-                between_partition = Partition(self, start, end, "Unallocated")
-                full_partitions.insert(full_partitions.index(partition)+1, between_partition)
-
-        return full_partitions
     
     @partitions.setter
     def partitions(self, partitions: List[Partition]):
