@@ -1,6 +1,9 @@
 from typing import List
 
+import crcmod as crcmod
+
 from ubift.logging import ubiftlog
+
 
 def find_signatures(data: bytes, signature: bytes) -> List[int]:
     """
@@ -21,6 +24,7 @@ def find_signatures(data: bytes, signature: bytes) -> List[int]:
 
     return all_hits
 
+
 def find_signature(data: bytes, signature: bytes, offset: int = 0) -> int:
     """
     Scans arbitrary binary data for a specific signature.
@@ -32,3 +36,6 @@ def find_signature(data: bytes, signature: bytes, offset: int = 0) -> int:
     if hit >= 0:
         ubiftlog.debug(f"[+] Found Signature {signature} at offset {hit}")
     return hit
+
+
+crc32 = crcmod.predefined.mkPredefinedCrcFun('CrcJamCrc')

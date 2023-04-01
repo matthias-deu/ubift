@@ -8,6 +8,7 @@ from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE
 from ubift.framework.ubi import UBI
+from ubift.framework.ubifs import UBIFS
 
 rootlog = logging.getLogger()
 console = logging.StreamHandler()
@@ -120,17 +121,19 @@ class CommandLine:
                     ubi = UBI(part)
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
-                            for leb in ubi_vol._blocks:
-                                if leb.leb_num == leb_num:
-                                    try:
-                                        sys.stdout.buffer.write(leb.data)
-                                    except IOError as e:
-                                        if e.errno == errno.EPIPE:
-                                            pass
-                                    return
+                            if leb_num not in ubi_vol.lebs:
+                                rootlog.error(f"[-] LEB {leb_num} does not exist in UBI Volume {ubi_vol.name}. It might not be mapped to a PEB.")
+                                return
+                            else:
+                                try:
+                                    sys.stdout.buffer.write(ubi_vol.lebs[leb_num].data)
+                                except IOError as e:
+                                    if e.errno == errno.EPIPE:
+                                        pass
+                                return
 
 
-            rootlog.error("[-] Offset or volume name could not be found. It is also possible that the LEB is not available or not mapped.")
+            rootlog.error(f"[-] UBI Volume {ubi_vol_name} could not be found.")
 
     def lebls(self, args):
         CommandLine.verbose(args)
@@ -196,20 +199,22 @@ class CommandLine:
         CommandLine.verbose(args)
 
         input = args.input
+        ubi_offset = args.offset
+        ubi_vol_name = args.vol_name
+
         with open(input, "rb") as f:
             data = f.read()
 
             t = Image(data, -1, -1, -1)
             t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
 
-            for partition in t.partitions:
-                ubi = UBI(partition)
-
-            ubi_vol = t.partitions[0].ubi_instance.volumes[0] # linux
-            sb_data = ubi_vol._blocks[0].data
-
-            sb = UBIFS_SB_NODE(sb_data, 0)
-            print(sb)
+            for part in t.partitions:
+                if ubi_offset == (part.offset // t.block_size):
+                    ubi = UBI(part)
+                    for ubi_vol in part.ubi_instance.volumes:
+                        if ubi_vol.name == ubi_vol_name:
+                            ubifs = UBIFS(ubi_vol)
+                            return
 
     def mtdls(self, args):
         CommandLine.verbose(args)

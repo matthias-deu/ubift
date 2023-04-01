@@ -57,8 +57,9 @@ def render_lebs(vol: UBIVolume, outfd=sys.stdout):
 
     outfd.write("LEB\t--->\tPEB\n")
 
-    vol._blocks.sort(key=lambda leb: leb.leb_num)
-    for leb in vol._blocks:
+    lebs = list(vol.lebs.values())
+    lebs.sort(key=lambda leb: leb.leb_num)
+    for leb in lebs:
         outfd.write(f"{zpad(leb.leb_num,5)}\t--->\t{zpad(leb._peb_num, 5)}\n")
 
 

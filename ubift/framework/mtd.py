@@ -118,7 +118,7 @@ class Partition:
         self._ubi_instance = None
 
         if len(self) % self.image.block_size != 0:
-            ubiftlog.info(f"[-] Partition {self.name} is not aligned to erase block size.")
+            ubiftlog.error(f"[-] Partition {self.name} is not aligned to erase block size.")
 
         ubiftlog.info(
             f"[!] Initialized Partition {self.offset} to {self.end} "
