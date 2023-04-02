@@ -13,6 +13,10 @@ class Image:
     """
     A Image is a raw dump file, i.e., bunch of bytes from a NAND flash.
     Basically, an Image represents an MTD device which can have multiple MTD-partitions.
+
+    The block_size is the size of a full PEB, without OOB
+    The page_size is the minimal I/O unit, without OOB
+    If pages contain an extra OOB area after their data, this can be specified in 'oob_size'
     """
     def __init__(self, data: bytes, block_size: int = -1, page_size: int = -1, oob_size: int = -1):
         self._oob_size = oob_size
@@ -57,6 +61,13 @@ class Image:
         return self._page_size
 
     def _guess_block_size(self, data: bytes) -> int:
+        """
+        Tries to 'guess' the size of a PEB. This is done by searching for a "UBI#" signature (ec-header)
+        and calculating its distance to the next ec-header. Therefore, this method requires the data to have at least one instance of UBI.
+        TODO: The block-size can also be looked up in the UBIFS supernode
+        :param data:
+        :return: Size of a PEB or raises an exception if guess failed.
+        """
         ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
         if ec_hdr_offset < 0:
             raise UBIFTException("Block size not specified, cannot guess size neither because no UBI_EC_HDR signatures found.")
@@ -71,9 +82,10 @@ class Image:
 
     def _guess_page_size(self, data: bytes) -> int:
         """
-        Tries to guess the page size by calculating the space between an ubi_ec_hdr and a ubi_vid_hdr
-        NOTE: This will fail if the flash allows sub-paging because UBI will use that feature to fit both headers inside one page
-        :return:
+        Tries to guess the page size by calculating the space between an ubi_ec_hdr and a ubi_vid_hdr.
+        This is simply done by looking at the 'vid_hdr_offset' field of an ec-header.
+        NOTE: This will probably fail if the flash allows sub-paging because UBI will use that feature to fit both headers inside one page (needs testing)
+        :return: Size of a page or raises an exception if guess failed.
         """
         ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
         if ec_hdr_offset < 0:
@@ -90,7 +102,7 @@ class Image:
     def strip_oob(cls, data: bytes, block_size: int, page_size: int, oob_size: int) -> bytes:
         """
         Strips OOB data out of binary data. This assumes that the OOB is located at the end of every page.
-        TODO: OOB can also be located as a group in some flashes
+        TODO: OOB can also be located as a group in some flashes (needs testing)
         """
 
         ubiftlog.info(f"[!] Stripping OOB with size {oob_size} from every page.")
@@ -122,7 +134,7 @@ class Partition:
 
         ubiftlog.info(
             f"[!] Initialized Partition {self.offset} to {self.end} "
-            f"(len: {len(self)}, blocks: {(len(self)) // self.image.block_size})")
+            f"(len: {len(self)}, PEBs: {(len(self)) // self.image.block_size})")
 
     def __len__(self):
         return self._end - self._offset + 1

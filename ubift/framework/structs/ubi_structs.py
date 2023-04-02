@@ -2,11 +2,9 @@ import cstruct as cstruct
 
 from ubift.framework.structs.structs import MemCStructExt, COMMON_TYPEDEFS
 
+# ID of the (internal) Volume that holds the Volume Table
 VTBL_VOLUME_ID = 0x7fffefff
 
-"""
-64-byte header which stores the volume ID and the logical eraseblock (LEB) number to which PEB it belongs
-"""
 class UBI_VID_HDR(MemCStructExt):
     __byte_order__ = cstruct.BIG_ENDIAN
     __magic__ = "\x55\x42\x49\x21".encode("utf-8") # UBI!
@@ -48,15 +46,6 @@ class UBI_EC_HDR(MemCStructExt):
         };
     """
 
-
-"""
-The volume table is an on-flash data structure which contains information about each volume on this UBI device. The volume table is an array of volume table records.
-
-Each record describes one UBI volume. The record index in the volume table array corresponds
-to the volume ID it describes. I.e, UBI volume 0 is described by record 0 in the volume table,
-and so on. The total number of records in the volume table is limited by the LEB size, and cannot be greater than 128.
-This means that UBI devices cannot have more than 128 volumes.
-"""
 class UBI_VTBL_RECORD(MemCStructExt):
     __byte_order__ = cstruct.BIG_ENDIAN
     __def__ = COMMON_TYPEDEFS + """

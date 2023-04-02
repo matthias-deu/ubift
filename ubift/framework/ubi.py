@@ -112,7 +112,7 @@ class UBI:
         vol = UBIVolume(vol_num, block_table[vol_num], vtbl_record)
 
         ubiftlog.info(
-            f"[+] Created UBI Volume '{vol.name}' (vol_num: {vol_num}, blocks: {len(block_table[vol_num])}).")
+            f"[+] Created UBI Volume '{vol.name}' (vol_num: {vol_num}, PEBs: {len(block_table[vol_num])}).")
 
         return vol
 

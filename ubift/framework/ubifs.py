@@ -1,11 +1,12 @@
 import struct
-from typing import List, Callable
+from typing import List, Callable, Any
 
 from ubift import exception
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_MST_NODE, UBIFS_NODE_TYPES, UBIFS_CH, \
-    UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, UBIFS_KEY_TYPES
+    UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, UBIFS_KEY_TYPES, \
+    UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node
 from ubift.framework.ubi import UBIVolume, LEB
-from ubift.framework.util import crc32
+from ubift.framework.util import crc32, find_signature
 from ubift.logging import ubiftlog
 
 # Which master node is used (there are two identical ones)
@@ -35,9 +36,55 @@ class UBIFS:
 
         ubiftlog.info(f"[!] Initialized UBIFS instance for UBI volume {self._ubi_volume}")
 
-        #self._traverse(self._root_idx_node, self._test_visitor)
-        key = UBIFS_KEY.create_key(1, UBIFS_KEY_TYPES.UBIFS_INO_KEY)
-        self._find(self._root_idx_node, None)
+        # self._parse_journal(self.masternodes[UBIFS_MASTERNODE_INDEX])
+
+        # self._traverse(self._root_idx_node, self._test_visitor)
+
+        #key = UBIFS_KEY.create_key(255, UBIFS_KEY_TYPES.UBIFS_INO_KEY)
+        #print(bytearray(key.pack()).hex(sep=","))
+
+        #node = self._find(self._root_idx_node, key)
+        #print(bytearray(node.key).hex(sep=","))
+        #print(node)
+
+
+    def _parse_journal(self, masternode: UBIFS_MST_NODE):
+        # WiP
+        print(masternode)
+        log_lnum = masternode.log_lnum
+        cur_offs = 0
+
+        for log_lnum in range(0, 150):
+            try:
+                index = find_signature(self.ubi_volume.lebs[log_lnum].data, "\x31\x18\x10\x06".encode("utf-8"))
+                while index >= 0:
+                    index = find_signature(self.ubi_volume.lebs[log_lnum].data, "\x31\x18\x10\x06".encode("utf-8"),
+                                           index + 1)
+                    if UBIFS_CH(self.ubi_volume.lebs[log_lnum].data,
+                                index).node_type == UBIFS_NODE_TYPES.UBIFS_REF_NODE:
+                        print("ref at :" + str(index))
+            except:
+                pass
+        exit()
+
+        ch_hdr = UBIFS_CH(self.ubi_volume.lebs[log_lnum].data, cur_offs)
+        print(ch_hdr)
+        while ch_hdr.validate_magic():
+            if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_PAD_NODE:
+                pad_node = UBIFS_PAD_NODE(self.ubi_volume.lebs[log_lnum].data, cur_offs)
+                cur_offs += UBIFS_PAD_NODE.size + pad_node.pad_len
+            elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_CS_NODE:
+                cur_offs += UBIFS_CS_NODE.size
+            elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_REF_NODE:
+                ref_node = UBIFS_REF_NODE(self.ubi_volume.lebs[log_lnum].data, cur_offs)
+                print(ref_node)
+                cur_offs += UBIFS_REF_NODE.size
+            else:
+                print(f"Unknown node type {ch_hdr.node_type}")
+                cur_offs += UBIFS_CH.size
+
+            ch_hdr = UBIFS_CH(self.ubi_volume.lebs[log_lnum].data, cur_offs)
+            # print(ch_hdr)
 
     def _parse_root_idx_node(self, masternode: UBIFS_MST_NODE) -> UBIFS_IDX_NODE:
         """
@@ -52,16 +99,39 @@ class UBIFS:
 
         return root_idx
 
-    def _find(self, root: UBIFS_IDX_NODE, key: UBIFS_KEY) -> UBIFS_CH:
+    def _find(self, node: Any, key: UBIFS_KEY) -> Any:
         """
-        Searches for a specific UBIFS_KEY key within the B-Tree with a given root. Will return the common header of the found node.
-        :param root: The root of the B-Tree that will be searched
+        Searches for a specific UBIFS_KEY key within the B-Tree with a given root.
+        :param node: Current node that will be searched
         :param key: Key that will be searched
-        :return: Instance of UBIFS_CH if the key was found, otherwise None
+        :return: Node if the key was found, otherwise None
         """
-        pass
+        # Fix because if there is only one UBIFS_BRANCH, it will not be in a List for some reason
+        if isinstance(node.branches, UBIFS_BRANCH):
+            node.branches = [node.branches]
 
-    def _traverse(self, node: UBIFS_IDX_NODE, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs) -> None:
+        sel_branch = None
+        for i, branch in enumerate(node.branches):
+            branch_key = branch.python_key()
+            if key < branch_key:
+                if i == 0:
+                    sel_branch = branch
+                    break
+                else:
+                    sel_branch = node.branches[i - 1]
+                    break
+            elif key == branch_key:
+                return parse_arbitrary_node(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
+        # Greater than last branch, so use last branch.
+        if sel_branch is None:
+            sel_branch = node.branches[-1]
+
+        target_node = parse_arbitrary_node(self.ubi_volume.lebs[sel_branch.lnum].data, sel_branch.offs)
+        if isinstance(target_node, UBIFS_IDX_NODE):
+            return self._find(target_node, key)
+
+    def _traverse(self, node: UBIFS_IDX_NODE, traversal_function: Callable[[UBIFS_CH, int, int, ...], None],
+                  **kwargs) -> None:
         """
         Performs an inorder-traversal of the B-Tree, applying 'traversal_function' to every node (visitor-pattern).
         :param node: Starting node, e.g., root-node if the whole B-Tree should be traversed
@@ -89,12 +159,13 @@ class UBIFS:
             self._traverse(idx_node, traversal_function, **kwargs)
 
     def _test_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, **kwargs) -> None:
-        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
-            target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
-            print(f"{target_node.formatted_name()} -> {target_node.inum} ({UBIFS_INODE_TYPES(target_node.type).name})")
-        # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
-        #     target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
-        #     print(target_node)
+        # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        #     target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+        #     print(f"{target_node.formatted_name()} -> {target_node.inum} ({UBIFS_INODE_TYPES(target_node.type).name})")
+        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+            target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+            print(f"{UBIFS_KEY(bytes(target_node.key)[:8])} -> {target_node.key}")
+            print(target_node)
 
     def _create_idx_node(self, branch: UBIFS_BRANCH) -> UBIFS_IDX_NODE:
         """
@@ -108,7 +179,8 @@ class UBIFS:
             return None
         target_node = UBIFS_CH(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
         if not target_node.validate_magic():
-            ubiftlog.warn(f"[-] Encountered an invalid node at LEB {branch.lnum} at offset {branch.offs}. (ch_hdr magic does not match)")
+            ubiftlog.warn(
+                f"[-] Encountered an invalid node at LEB {branch.lnum} at offset {branch.offs}. (ch_hdr magic does not match)")
             return None
         if target_node.node_type == UBIFS_NODE_TYPES.UBIFS_IDX_NODE:
             target_node = UBIFS_IDX_NODE(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
@@ -118,26 +190,26 @@ class UBIFS:
 
     # DEPRECATED
     # Branches are directly parsed in ubifs_struct.py in UBIFS_IDX_NODE
-    def _parse_branches(self, branch_cnt: int, leb: LEB, offset: int) -> List[UBIFS_BRANCH]:
-        """
-        This function parses and creates UBIFS_BRANCH instances that are a flexible member of a UBIFS_IDX_NODE.
-        :param branch_cnt: How many braches there are. This is defined in an instance of UBIFS_IDX_NODE.child_cnt
-        :param leb: LEB that contains the UBIFS_IDX_NODE
-        :param offset: Offset where the branches start
-        :return: List of UBIFS_BRANCH instances
-        """
-        branches: List[UBIFS_BRANCH] = []
-        cur = offset
-        for off in range(branch_cnt):
-            branch = UBIFS_BRANCH(leb.data, cur)
-            cur += UBIFS_BRANCH.size
-
-            branch.key = leb.data[cur:cur + UBIFS_KEY_SIZE]
-            cur += UBIFS_KEY_SIZE
-
-            branches.append(branch)
-
-        return branches
+    # def _parse_branches(self, branch_cnt: int, leb: LEB, offset: int) -> List[UBIFS_BRANCH]:
+    #     """
+    #     This function parses and creates UBIFS_BRANCH instances that are a flexible member of a UBIFS_IDX_NODE.
+    #     :param branch_cnt: How many braches there are. This is defined in an instance of UBIFS_IDX_NODE.child_cnt
+    #     :param leb: LEB that contains the UBIFS_IDX_NODE
+    #     :param offset: Offset where the branches start
+    #     :return: List of UBIFS_BRANCH instances
+    #     """
+    #     branches: List[UBIFS_BRANCH] = []
+    #     cur = offset
+    #     for off in range(branch_cnt):
+    #         branch = UBIFS_BRANCH(leb.data, cur)
+    #         cur += UBIFS_BRANCH.size
+    #
+    #         branch.key = leb.data[cur:cur + UBIFS_KEY_SIZE]
+    #         cur += UBIFS_KEY_SIZE
+    #
+    #         branches.append(branch)
+    #
+    #     return branches
 
     def _validate(self) -> bool:
         """

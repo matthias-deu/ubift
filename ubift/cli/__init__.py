@@ -93,7 +93,7 @@ class CommandLine:
         parser.add_argument("--verbose", help="Outputs a lot more debug information", default=False, action="store_true")
 
     @classmethod
-    def verbose(cls, args: argparse.Namespace):
+    def verbose(cls, args: argparse.Namespace) -> None:
         """
         Checks if --verbose is set True, if yes, will enable logging.
         :param args:
@@ -102,7 +102,13 @@ class CommandLine:
         if hasattr(args, "verbose") and args.verbose is False:
             logging.disable(logging.INFO)
 
-    def lebcat(self, args):
+    def lebcat(self, args) -> None:
+        """
+        Prints the data of a specific LEB of a specific UBI Volume to stdout
+        Example: ./ubift.py lebcat "/path/to/dump" 445 linux 463
+        :param args:
+        :return:
+        """
         CommandLine.verbose(args)
 
         input = args.input
@@ -113,11 +119,11 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
+            image = Image(data, -1, -1, -1)
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
 
-            for part in t.partitions:
-                if ubi_offset == (part.offset // t.block_size):
+            for part in image.partitions:
+                if ubi_offset == (part.offset // image.block_size):
                     ubi = UBI(part)
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
@@ -132,7 +138,6 @@ class CommandLine:
                                         pass
                                 return
 
-
             rootlog.error(f"[-] UBI Volume {ubi_vol_name} could not be found.")
 
     def lebls(self, args):
@@ -145,11 +150,11 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
+            image = Image(data, -1, -1, -1)
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
 
-            for part in t.partitions:
-                if ubi_offset == (part.offset // t.block_size):
+            for part in image.partitions:
+                if ubi_offset == (part.offset // image.block_size):
                     ubi = UBI(part)
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
@@ -169,14 +174,14 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
-            if block_num < 0 or block_num > len(t.data) // t.block_size:
+            image = Image(data, -1, -1, -1)
+            if block_num < 0 or block_num > len(image.data) // image.block_size:
                 rootlog.error("[-] Invalid physical Erase Block index.")
             else:
-                start = block_num * t.block_size
-                end = ((block_num+1) * t.block_size)
+                start = block_num * image.block_size
+                end = ((block_num+1) * image.block_size)
                 try:
-                    sys.stdout.buffer.write(t.data[start:end])
+                    sys.stdout.buffer.write(image.data[start:end])
                 except IOError as e:
                     if e.errno == errno.EPIPE:
                         pass
@@ -188,12 +193,12 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
-            for partition in t.partitions:
+            image = Image(data, -1, -1, -1)
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
+            for partition in image.partitions:
                 ubi = UBI(partition)
 
-            render_ubi_instances(t)
+            render_ubi_instances(image)
 
     def fsstat(self, args: argparse.Namespace):
         CommandLine.verbose(args)
@@ -205,11 +210,11 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t, fill_partitions=False)
+            image = Image(data, -1, -1, -1)
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
 
-            for part in t.partitions:
-                if ubi_offset == (part.offset // t.block_size):
+            for part in image.partitions:
+                if ubi_offset == (part.offset // image.block_size):
                     ubi = UBI(part)
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
@@ -227,10 +232,10 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, block_size, page_size, oob_size)
-            t.partitions = UBIPartitioner().partition(t, fill_partitions=True)
+            image = Image(data, block_size, page_size, oob_size)
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=True)
 
-            render_image(t)
+            render_image(image)
 
     def mtdcat(self, args):
         CommandLine.verbose(args)
@@ -241,18 +246,14 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            t = Image(data, -1, -1, -1)
-            t.partitions = UBIPartitioner().partition(t, fill_partitions=True)
+            image = Image(data, -1, -1, -1)
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=True)
 
-            if num < 0 or num >= len(t.partitions):
+            if num < 0 or num >= len(image.partitions):
                 rootlog.error("[-] Invalid Partition index.")
             else:
                 try:
-                    sys.stdout.buffer.write(t.partitions[num].data)
+                    sys.stdout.buffer.write(image.partitions[num].data)
                 except IOError as e:
                     if e.errno == errno.EPIPE:
                         pass
-
-
-if __name__=="__main__":
-    CommandLine().start()

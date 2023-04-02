@@ -1,4 +1,5 @@
 import struct
+from functools import total_ordering
 from typing import Dict, Any, List
 
 from cstruct import LITTLE_ENDIAN, CEnum
@@ -58,12 +59,23 @@ class UBIFS_NODE_TYPES(CEnum):
     """
 
 
+@total_ordering
 class UBIFS_KEY:
     def __init__(self, data: bytes):
         self.inode_num = struct.unpack("<L", data[:4])[0]
         value = struct.unpack("<L", data[4:])[0]
         self.key_type = value >> 29
         self.payload = value & 0x1FFFFFFF
+
+    def __eq__(self, other):
+        if not isinstance(other, UBIFS_KEY):
+            return NotImplemented
+        return (self.inode_num, self.key_type, self.payload) == (other.inode_num, other.key_type, other.payload)
+
+    def __lt__(self, other):
+        if not isinstance(other, UBIFS_KEY):
+            return NotImplemented
+        return (self.inode_num, self.key_type, self.payload) < (other.inode_num, other.key_type, other.payload)
 
     @classmethod
     def create_key(cls, inum: int, key_type: UBIFS_KEY_TYPES, payload: bytes = 0) -> 'UBIFS_KEY':
@@ -75,6 +87,9 @@ class UBIFS_KEY:
         :return: Returns an instance of UBIFS_KEY
         """
         return UBIFS_KEY(struct.pack("<LL", inum, (key_type << 29) | payload))
+
+    def pack(self) -> bytes:
+        return struct.pack("<LL", self.inode_num, (self.key_type << 29) | self.payload)
 
     def __str__(self):
         return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{UBIFS_KEY_TYPES(self.key_type)}, payload:{self.payload})"
@@ -99,6 +114,39 @@ class UBIFS_CH(MemCStructExt):
     """
 
 
+class UBIFS_REF_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_ref_node {
+        struct UBIFS_CH ch;
+        __le32 lnum;
+        __le32 offs;
+        __le32 jhead;
+        __u8 padding[28];
+    } __packed;
+    """
+
+
+class UBIFS_PAD_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_pad_node {
+            struct UBIFS_CH ch;
+            __le32 pad_len;
+        } __packed;
+    """
+
+
+class UBIFS_CS_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_cs_node {
+            struct UBIFS_CH ch;
+            __le64 cmt_no;
+        } __packed;
+    """
+
+
 class UBIFS_BRANCH(MemCStructExt):
     __byte_order__ = LITTLE_ENDIAN
     __def__ = COMMON_TYPEDEFS + """
@@ -110,6 +158,27 @@ class UBIFS_BRANCH(MemCStructExt):
             __le32 len;
             __u8 key[UBIFS_KEY_SIZE];  /* This is normally __u8 key[] but changed to fixed size for easy access */
         };
+    """
+
+    def python_key(self) -> UBIFS_KEY:
+        """
+        :return: Returns the cstruct key as instance of UBIFS_KEY (which can be used for comparisons etc)
+        """
+        return UBIFS_KEY(bytes(self.key)[:8]) if self.key is not None else None
+
+
+
+class UBIFS_DATA_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_data_node {
+            struct UBIFS_CH ch;
+            __u8 key[UBIFS_MAX_KEY_LEN];
+            __le32 data_size; /* The original name is size, but this is a reserved keyword in cstruct */
+            __le16 compr_type;
+            __le16 compr_size;
+            __u8 data[];
+        } __packed;
     """
 
 
@@ -288,3 +357,34 @@ class UBIFS_DENT_NODE(MemCStructExt):
         formatted_name = [f"{x:x}" for x in list(self.name)]
         formatted_name = "".join(formatted_name)
         return bytearray.fromhex(formatted_name).decode()
+
+
+# Maps node_type number to a specific class implementing that node type
+node_mapping = {
+    UBIFS_NODE_TYPES.UBIFS_INO_NODE: UBIFS_INO_NODE,
+    UBIFS_NODE_TYPES.UBIFS_DATA_NODE: UBIFS_DATA_NODE,
+    UBIFS_NODE_TYPES.UBIFS_DENT_NODE: UBIFS_DENT_NODE,
+    # UBIFS_NODE_TYPES.UBIFS.XENT_NODE:
+    # UBIFS_NODE_TYPES.UBIFS_TRUN_NODE:
+    UBIFS_NODE_TYPES.UBIFS_PAD_NODE: UBIFS_PAD_NODE,
+    UBIFS_NODE_TYPES.UBIFS_SB_NODE: UBIFS_SB_NODE,
+    UBIFS_NODE_TYPES.UBIFS_MST_NODE: UBIFS_MST_NODE,
+    UBIFS_NODE_TYPES.UBIFS_REF_NODE: UBIFS_REF_NODE,
+    UBIFS_NODE_TYPES.UBIFS_IDX_NODE: UBIFS_IDX_NODE,
+    UBIFS_NODE_TYPES.UBIFS_CS_NODE: UBIFS_CS_NODE,
+    # UBIFS_NODE_TYPES.UBIFS_UBIFS_ORPH_NODE:
+    # UBIFS_NODE_TYPES.UBIFS_AUTH_NODE:
+    # UBIFS_NODE_TYPES.UBIFS_SIG_NODE:
+}
+
+
+def parse_arbitrary_node(data: bytes, offset: int) -> Any:
+    """
+    Creates a specific node by parsing the common header found at a specific position.
+    :param data: Data containing the node
+    :param offset: Offset in data where the node starts
+    :return: Specific node instance, depending on node_type in the common header
+    """
+    ch_hdr = UBIFS_CH(data, offset)
+    cls = node_mapping[ch_hdr.node_type]
+    return cls(data, offset)

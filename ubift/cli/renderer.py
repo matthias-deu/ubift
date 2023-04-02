@@ -6,7 +6,14 @@ from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
 from ubift.framework.ubi import UBIVolume
 
 
-def readable_size(num, suffix="B"):
+def readable_size(num: int, suffix="B"):
+    """
+    Converts amount of bytes to a readable format depending on its size.
+    Example: 336896B -> 329KiB
+    :param num:
+    :param suffix:
+    :return:
+    """
     if num < 0:
         return "-"
     for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
@@ -19,21 +26,22 @@ def readable_size(num, suffix="B"):
 def zpad(num: int, len: str) -> int:
     """
     Pads a number with a given amount of zeroes.
-    For instance, "1" with len of 3 will be padded to 001
-
-    Args:
-        num: The number to be padded with zeroes.
-        len: How many digits the output number will contain, filled with zeroes at the beginning.
-
-    Returns: Zero-padded digit.
-
+    Example: "1" with len of 3 will be padded to 001
+    :param num: The number to be padded with zeroes.
+    :param len: How many digits the output number will contain, filled with zeroes at the beginning.
+    :return: Zero-padded digit.
     """
     len = "0" + str(len)
     return format(num, len)
 
 
 def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
-
+    """
+    Writes all UBI instances of an Image to stdout in a readable format
+    :param image:
+    :param outfd:
+    :return:
+    """
     ubi_instances = []
     for partition in image.partitions:
         if partition.ubi_instance is not None:
@@ -54,6 +62,13 @@ def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
 
 
 def render_lebs(vol: UBIVolume, outfd=sys.stdout):
+    """
+    Writes all LEBS to stdout in a readable format
+    TODO: Maybe also write ec_hdr or more info in general?
+    :param vol:
+    :param outfd:
+    :return:
+    """
     outfd.write(f"UBI Volume Index:{vol._vol_num} Name:{vol.name}\n\n")
 
     outfd.write("LEB\t--->\tPEB\n")
@@ -65,6 +80,12 @@ def render_lebs(vol: UBIVolume, outfd=sys.stdout):
 
 
 def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
+    """
+    Writes a singel vtbl_record to stdout in a readable format
+    :param vtbl_record:
+    :param outfd:
+    :return:
+    """
     outfd.write(f"Reserved PEBs: {vtbl_record.reserved_pebs}\n")
     outfd.write(f"Alignment: {vtbl_record.alignment}\n")
     outfd.write(f"Data Pad: {vtbl_record.data_pad}\n")
@@ -74,6 +95,12 @@ def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
     outfd.write(f"CRC: {vtbl_record.crc}\n")
 
 def render_image(image: Image, outfd=sys.stdout) -> None:
+    """
+    Writes information about an Image to stdout in a readable format
+    :param image:
+    :param outfd:
+    :return:
+    """
     outfd.write(f"MTD Image\n\n")
     outfd.write(f"Size: {readable_size(len(image.data))}\n")
 
@@ -95,6 +122,7 @@ def render_image(image: Image, outfd=sys.stdout) -> None:
         length = zpad(len(partition) // image.block_size, 10)
         outfd.write(f"{zpad(i, 3)}:\t{start}\t\t{end}\t\t{length}\t\t{partition.name}\n")
 
+    # TODO: Maybe add a switch if sizes in bytes are prefered?
     # outfd.write("\tStart\t\t\tEnd\t\t\tLength\t\t\tDescription\n")
     # for i,partition in enumerate(mtd_parts):
     #     start = zpad(partition.offset, 10)
