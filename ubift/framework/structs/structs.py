@@ -3,6 +3,7 @@ import cstruct as cstruct
 from typing import Dict, Any
 
 COMMON_TYPEDEFS = """
+    #define UBIFS_MAX_KEY_LEN 16
 
     typedef uint8 __u8;
 
@@ -22,12 +23,14 @@ class MemCStructExt(cstruct.MemCStruct):
         buffer = data[offset:offset + self.size] if data is not None and offset is not None else None
         super().__init__(buffer=buffer, kargs=kargs)
 
-    def validate_magic(self):
+    def validate_magic(self) -> bool:
         if hasattr(self, "__magic__") and hasattr(self, "magic"):
-            return self.__magic__.hex() == hex(self.magic)[2:]
-        else:
-            print(f"[-] Cannot validate {type(self)} because either missing '__magic__' or 'magic' property.")
+            return self.__magic__.hex().strip('0') == hex(self.magic)[2:]
+        elif not hasattr(self, "magic"):
+            print(f"[-] Cannot validate {type(self)} because 'magic' property missing.")
             return False
+        else:
+            return True
 
     def parse(self, data, offset):
         self.unpack(data[offset:offset + self.size])

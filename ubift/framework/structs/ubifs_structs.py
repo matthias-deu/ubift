@@ -1,8 +1,22 @@
+import struct
 from typing import Dict, Any, List
 
 from cstruct import LITTLE_ENDIAN, CEnum
 
 from ubift.framework.structs.structs import MemCStructExt, COMMON_TYPEDEFS
+
+
+class UBIFS_KEY_TYPES(CEnum):
+    __size__ = 1
+    __def__ = """
+        enum {
+            UBIFS_INO_KEY,
+            UBIFS_DATA_KEY,
+            UBIFS_DENT_KEY,
+            UBIFS_XENT_KEY,
+            UBIFS_KEY_TYPES_CNT,
+        };
+    """
 
 
 class UBIFS_NODE_TYPES(CEnum):
@@ -27,6 +41,21 @@ class UBIFS_NODE_TYPES(CEnum):
         }
     """
 
+
+class UBIFS_KEY():
+    def __init__(self, data: bytes):
+        self.inode_num = struct.unpack("<L", data[:4])[0]
+        value = struct.unpack("<L", data[4:])[0]
+        self.key_type = value >> 29
+        self.payload = value & 0x1FFFFFFF
+
+    def __str__(self):
+        return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{self.key_type}, payload:{self.payload})"
+
+    def __repr__(self):
+        return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{self.key_type}, payload:{self.payload})"
+
+
 class UBIFS_CH(MemCStructExt):
     __byte_order__ = LITTLE_ENDIAN
     __magic__ = "\x06\x10\x18\x31".encode("utf-8")  # 0x06101831
@@ -41,6 +70,8 @@ class UBIFS_CH(MemCStructExt):
             __u8 padding[2];
         };
     """
+
+
 class UBIFS_BRANCH(MemCStructExt):
     __byte_order__ = LITTLE_ENDIAN
     __def__ = COMMON_TYPEDEFS + """
@@ -50,11 +81,25 @@ class UBIFS_BRANCH(MemCStructExt):
             __le32 lnum;
             __le32 offs;
             __le32 len;
-            __u8 key[UBIFS_KEY_SIZE]; /* This is normally __u8 key[] but changed to fixed size for easy access */
+            __u8 key[UBIFS_KEY_SIZE];  /* This is normally __u8 key[] but changed to fixed size for easy access */
         };
     """
 
+
 class UBIFS_IDX_NODE(MemCStructExt):
+    def __init__(self, data=None, offset=None, *args, **kwargs):
+        """
+        Creates an instance of a UBIFS_IDX_NODE. Automatically parses its instances of UBIFS_BRANCH.
+        :param data:
+        :param offset:
+        :param args:
+        :param kwargs:
+        """
+        child_cnt = struct.unpack("<H", data[offset + UBIFS_CH.size:offset + UBIFS_CH.size + 2])[0]
+        if child_cnt is not None and child_cnt > 0:
+            self.set_flexible_array_length(child_cnt)
+        super(UBIFS_IDX_NODE, self).__init__(data, offset, *args, **kwargs)
+
     __byte_order__ = LITTLE_ENDIAN
     __def__ = COMMON_TYPEDEFS + """
         struct ubifs_idx_node {
@@ -64,6 +109,7 @@ class UBIFS_IDX_NODE(MemCStructExt):
             struct UBIFS_BRANCH branches[]; /* This is normally __u8 but changed to struct UBIFS_BRANCH for easy access */
         };
     """
+
 
 class UBIFS_SB_NODE(MemCStructExt):
     __byte_order__ = LITTLE_ENDIAN
@@ -145,3 +191,73 @@ class UBIFS_MST_NODE(MemCStructExt):
             __u8 padding[152];
         };
     """
+
+
+class UBIFS_INO_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_ino_node {
+            struct UBIFS_CH ch;
+            __u8 key[UBIFS_MAX_KEY_LEN];
+            __le64 creat_sqnum;
+            __le64 ino_size; /* The original name is size, but this is a reserved keyword in cstruct */
+            __le64 atime_sec;
+            __le64 ctime_sec;
+            __le64 mtime_sec;
+            __le32 atime_nsec;
+            __le32 ctime_nsec;
+            __le32 mtime_nsec;
+            __le32 nlink;
+            __le32 uid;
+            __le32 gid;
+            __le32 mode;
+            __le32 flags;
+            __le32 data_len;
+            __le32 xattr_cnt;
+            __le32 xattr_size;
+            __u8 padding1[4]; /* Watch 'zero_ino_node_unused()' if changing! */
+            __le32 xattr_names;
+            __le16 compr_type;
+            __u8 padding2[26]; /* Watch 'zero_ino_node_unused()' if changing! */
+            __u8 data[];
+    };
+    """
+
+
+class UBIFS_DENT_NODE(MemCStructExt):
+    def __init__(self, data=None, offset=None, *args, **kwargs):
+        """
+        Creates an instance of a UBIFS_DENT_NODE. Automatically parses its name based on name_len.
+        :param data:
+        :param offset:
+        :param args:
+        :param kwargs:
+        """
+        nlen_offs = offset + UBIFS_CH.size + 16 + 8 + 1 + 1
+        name_len = struct.unpack("<H", data[nlen_offs:nlen_offs + 2])[0]
+        if name_len is not None and name_len > 0:
+            self.set_flexible_array_length(name_len)
+        super(UBIFS_DENT_NODE, self).__init__(data, offset, *args, **kwargs)
+
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_dent_node {
+        struct UBIFS_CH ch;
+        __u8 key[UBIFS_MAX_KEY_LEN];
+        __le64 inum;
+        __u8 padding1;
+        __u8 type;
+        __le16 nlen;
+        __le32 cookie;
+        __u8 name[];
+    } __packed;
+    """
+
+    def formatted_name(self) -> str:
+        """
+        Prints the name of the Volume by concatenating the hex values and decoding them
+        @return:
+        """
+        formatted_name = [f"{x:x}" for x in list(self.name)]
+        formatted_name = "".join(formatted_name)
+        return bytearray.fromhex(formatted_name).decode()
