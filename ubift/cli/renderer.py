@@ -43,6 +43,7 @@ def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
 
     for i,ubi in enumerate(ubi_instances):
         outfd.write(f"UBI Instance {i}\n")
+        outfd.write(f"PEB Offset: {ubi.partition.offset // image.block_size}\n")
         outfd.write(f"Physical Erase Blocks: {len(ubi.partition.data) // image.block_size} (start:{ubi.partition.offset} end:{ubi.partition.end})\n")
         outfd.write(f"Volumes: {len(ubi.volumes)}\n")
         for i,vol in enumerate(ubi.volumes):

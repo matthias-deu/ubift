@@ -6,6 +6,22 @@ from cstruct import LITTLE_ENDIAN, CEnum
 from ubift.framework.structs.structs import MemCStructExt, COMMON_TYPEDEFS
 
 
+class UBIFS_INODE_TYPES(CEnum):
+    __size__ = 1
+    __def__ = """
+        enum {
+            UBIFS_ITYPE_REG,  /* regular file */
+            UBIFS_ITYPE_DIR,  /* directory */
+            UBIFS_ITYPE_LNK,  /* soft link */
+            UBIFS_ITYPE_BLK,  /* block device node */
+            UBIFS_ITYPE_CHR,  /* character device node*/
+            UBIFS_ITYPE_FIFO, /* fifo*/
+            UBIFS_ITYPE_SOCK, /* socket */
+            UBIFS_ITYPES_CNT, /* counth of possible inode types */
+        };
+    """
+
+
 class UBIFS_KEY_TYPES(CEnum):
     __size__ = 1
     __def__ = """
@@ -42,18 +58,29 @@ class UBIFS_NODE_TYPES(CEnum):
     """
 
 
-class UBIFS_KEY():
+class UBIFS_KEY:
     def __init__(self, data: bytes):
         self.inode_num = struct.unpack("<L", data[:4])[0]
         value = struct.unpack("<L", data[4:])[0]
         self.key_type = value >> 29
         self.payload = value & 0x1FFFFFFF
 
+    @classmethod
+    def create_key(cls, inum: int, key_type: UBIFS_KEY_TYPES, payload: bytes = 0) -> 'UBIFS_KEY':
+        """
+        Creates an instance of a UBIFS_KEY with given parameters. The payload can be None, putting 0-bytes in their place.
+        :param inum: inode number
+        :param key_type: Type of the key, see 'UBIFS_KEY_TYPES'-Enum for possible types.
+        :param payload: Payload (last 29bits of key), can be None, in which case 0-bits will be used.
+        :return: Returns an instance of UBIFS_KEY
+        """
+        return UBIFS_KEY(struct.pack("<LL", inum, (key_type << 29) | payload))
+
     def __str__(self):
-        return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{self.key_type}, payload:{self.payload})"
+        return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{UBIFS_KEY_TYPES(self.key_type)}, payload:{self.payload})"
 
     def __repr__(self):
-        return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{self.key_type}, payload:{self.payload})"
+        return f"UBIFS_KEY(inode_num:{self.inode_num}, key_type:{UBIFS_KEY_TYPES(self.key_type)}, payload:{self.payload})"
 
 
 class UBIFS_CH(MemCStructExt):
