@@ -4,14 +4,21 @@ from typing import List
 
 from ubift.framework.mtd import Partition
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD, UBI_EC_HDR, VTBL_VOLUME_ID, UBI_VID_HDR
+from ubift.framework.structs.ubifs_structs import UBIFS_CH, UBIFS_NODE_TYPES, UBIFS_DENT_NODE
+from ubift.framework.util import find_signature
 from ubift.logging import ubiftlog
 
 
 class UBIVolume:
-    def __init__(self, vol_num: int, lebs: List[LEB], vtbl_record: UBI_VTBL_RECORD):
+    def __init__(self, ubi: UBI, vol_num: int, lebs: List[LEB], vtbl_record: UBI_VTBL_RECORD):
+        self._ubi = ubi
         self._vol_num = vol_num
         self._lebs = {leb.leb_num: leb for leb in lebs}
         self._vtbl_record = vtbl_record
+
+    @property
+    def ubi(self):
+        return self._ubi
 
     @property
     def name(self):
@@ -53,12 +60,27 @@ class UBI:
     def offset(self):
         return self._offset
 
+    @property
+    def peb_offset(self):
+        return self.partition.offset // self.partition.image.block_size
+
     def end(self):
         return self._end
 
     @property
     def volumes(self):
         return self._volumes
+
+    def get_volume(self, name: str) -> UBIVolume:
+        """
+        Gets an UBIVolume by name
+        :param name: Name of the UBIVolume
+        :return: UBIVolume with name or None if there is no such UBIVolume
+        """
+        for volume in self.volumes:
+            if volume.name == name:
+                return volume
+        return None
 
     @property
     def partition(self):
@@ -109,7 +131,7 @@ class UBI:
 
     def _create_volume(self, vol_num: int, vtbl_record: UBI_VTBL_RECORD,
                        block_table: dict[int, List[LEB]]) -> UBIVolume:
-        vol = UBIVolume(vol_num, block_table[vol_num], vtbl_record)
+        vol = UBIVolume(self, vol_num, block_table[vol_num], vtbl_record)
 
         ubiftlog.info(
             f"[+] Created UBI Volume '{vol.name}' (vol_num: {vol_num}, PEBs: {len(block_table[vol_num])}).")

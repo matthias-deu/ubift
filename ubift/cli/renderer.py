@@ -1,9 +1,12 @@
 import logging
 import sys
+from typing import Dict
 
 from ubift.framework.mtd import Image
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
+from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_TYPES
 from ubift.framework.ubi import UBIVolume
+from ubift.framework.ubifs import UBIFS
 
 
 def readable_size(num: int, suffix="B"):
@@ -93,6 +96,51 @@ def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
     outfd.write(f"Update Marker: {vtbl_record.upd_marker}\n")
     outfd.write(f"Flags: {vtbl_record.flags}\n")
     outfd.write(f"CRC: {vtbl_record.crc}\n")
+
+def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout) -> None:
+    """
+    Renders a dict of UBIFS_NODE_DENT to output (like fls in TSK)
+    :param ubifs: UBIFS instance, needed to unroll paths
+    :param dents: Dict of inode num->dent
+    :param full_paths: If True, will print full paths of files
+    :param outfd: Where to write output data
+    :return:
+    """
+    dent_list = dents.values() if isinstance(dents, Dict) else dents
+
+    outfd.write("Type\tInode\tName\n")
+    for dent in dent_list:
+        render_inode_type(dent.type)
+        outfd.write(f"\t{dent.inum}\t")
+        if full_paths:
+            outfd.write(f"{ubifs._unroll_path(dent, dents)}")
+        else:
+            outfd.write(f"{dent.formatted_name()}")
+        outfd.write("\n")
+
+def render_inode_type(inode_type: int, outfd=sys.stdout):
+    """
+    Renders an UBIFS_INODE_TYPES to a readable format (no newline)
+    :param inode_type:
+    :return:
+    """
+    if inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_REG:
+        outfd.write(f"file")
+    elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_DIR:
+        outfd.write(f"dir")
+    elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_LNK:
+        outfd.write(f"link")
+    elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_BLK:
+        outfd.write(f"blk")
+    elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_CHR:
+        outfd.write(f"chr")
+    elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_FIFO:
+        outfd.write(f"link")
+    elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_SOCK:
+        outfd.write(f"sock")
+    else:
+        outfd.write(f"unkn")
+
 
 def render_image(image: Image, outfd=sys.stdout) -> None:
     """

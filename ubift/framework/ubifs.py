@@ -1,9 +1,10 @@
 import struct
+import uuid
 from typing import List, Callable, Any
 
 from ubift import exception
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_MST_NODE, UBIFS_NODE_TYPES, UBIFS_CH, \
-    UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, UBIFS_KEY_TYPES, \
+    UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, \
     UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node
 from ubift.framework.ubi import UBIVolume, LEB
 from ubift.framework.util import crc32, find_signature
@@ -40,13 +41,77 @@ class UBIFS:
 
         # self._traverse(self._root_idx_node, self._test_visitor)
 
-        #key = UBIFS_KEY.create_key(255, UBIFS_KEY_TYPES.UBIFS_INO_KEY)
-        #print(bytearray(key.pack()).hex(sep=","))
+        # print(dents[239].formatted_name())
+        # print(self._unroll_path(dents[239], dents, inodes))
+        # for dent in dents.values():
+        #    print(dent.inum)
 
-        #node = self._find(self._root_idx_node, key)
-        #print(bytearray(node.key).hex(sep=","))
-        #print(node)
+        # key = UBIFS_KEY.create_key(363, 2, key_r5_hash("0914_2023-03-01T114645+0100_6EE37D_000C.pud"))
+        # node = self._find(self._root_idx_node, key)
+        # print(node.formatted_name())
 
+        # key = UBIFS_KEY.create_key(255, UBIFS_KEY_TYPES.UBIFS_INO_KEY)
+        # print(bytearray(key.pack()).hex(sep=","))
+
+        # node = self._find(self._root_idx_node, key)
+        # print(bytearray(node.key).hex(sep=","))
+        # print(node)
+
+    def _scan(self, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs) -> None:
+        """
+        Scans the UBI instance for UBIFS_CH signatures. This will naturally find a lot more than using _traverse, i.e., nodes that are obsolete.
+        :param traversal_function: Function that will be called for every found signature
+        :param kwargs:
+        :return:
+        """
+        ubi = self._ubi_volume.ubi
+        partition = self._ubi_volume.ubi.partition
+        if len(ubi.volumes) > 1:
+            ubiftlog.warn("[-] The UBI instance has more than one volume, therefore it wont be clear to which volume the parsed nodes belong to. LEB information cannot be used because it cannot be assured that a vid header is written to the LEB (only EC).")
+
+        start_offset = ubi.partition.offset
+        stop_offset = ubi.partition.end
+        index = find_signature(partition.image.data, "\x31\x18\x10\x06".encode("utf-8"), start_offset) # TODO: __magic__ is BIG_ENDIAN but UBIFS_CH are LITTLE_ENDIAN
+        while 0 <= index < stop_offset:
+            try:
+                ch_hdr = UBIFS_CH(partition.image.data, index)
+                peb = index // partition.image.block_size
+                peb_offset = index - (peb * partition.image.block_size)
+                traversal_function(ch_hdr, peb, peb_offset, **kwargs) # Traversel function is called with PEB num and offset
+            except:
+                ubiftlog.warn(f"[-] Possibly invalid UBIFS_CH at PEB {peb} offset {peb_offset}.")
+
+            index = find_signature(partition.image.data, "\x31\x18\x10\x06".encode("utf-8"), index + 1)
+
+    def _dent_scan_visitor(self, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: int, dents: List[UBIFS_DENT_NODE], **kwargs) -> None:
+        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+            block_size = self.ubi_volume.ubi.partition.image.block_size
+            dent_node = UBIFS_DENT_NODE(self.ubi_volume.ubi.partition.image.data, peb_num * block_size + peb_offs)
+            dents.append(dent_node)
+
+    def _unroll_path(self, dent: UBIFS_DENT_NODE, dents: dict[int, UBIFS_DENT_NODE]) -> str:
+        """
+        Fetches the complete path of an UBIFS_DENT_NODE up to the root.
+        UBIFS_DENT_NODE have 2 inode numbers, one (inside the key[] has the inode number of the parent] and dent.inum is its own inode number)
+        Unrolled will fetch the UBIFS_DENT_NODE of the parent recursivly until the dent.inum==0(root-directory) has been reached.
+        :param dent: The directory  ntry that will have its path unrolled up to the root
+        :param dents: All available directory entry nodes
+        :return:
+        """
+        # The parent-inode of the directory entry is saved in the first 32-Bits of it key
+        key = UBIFS_KEY(bytes(dent.key[:8]))
+        parent_inum = key.inode_num
+
+        cur = dent.formatted_name()
+        # Root reached?
+        if parent_inum == 0:
+            return cur
+        # Otherwise go up the hierarchy recursivly
+        else:
+            if parent_inum in dents:
+                return self._unroll_path(dents[parent_inum], dents) + "/" + cur
+            else:
+                return cur
 
     def _parse_journal(self, masternode: UBIFS_MST_NODE):
         # WiP
@@ -158,14 +223,36 @@ class UBIFS:
         if idx_node is not None:
             self._traverse(idx_node, traversal_function, **kwargs)
 
+    def _inode_dent_collector_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict, dents: dict,
+                                      **kwargs) -> None:
+        """
+        A Visitor that collects all nodes of types UBIFS_DENT_NODE and UBIFS_INO_NODE and stores them in the dicts 'inodes' and 'dents'
+        :param ch_hdr: Will be provided by _travers-function
+        :param leb_num: Will be provided by _travers-function
+        :param leb_offs: Will be provided by _travers-function
+        :param inodes: Collected nodes of type UBIFS_INO_NODE
+        :param dents: Collected nodes of type UBIFS_DENT_NODE
+        :param kwargs:
+        :return:
+        """
+        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+            dent_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+            dents[dent_node.inum] = dent_node
+        elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+            inode_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+            key = UBIFS_KEY(bytes(inode_node.key[:8]))
+            inodes[key.inode_num] = inode_node
+
     def _test_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, **kwargs) -> None:
-        # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
-        #     target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
-        #     print(f"{target_node.formatted_name()} -> {target_node.inum} ({UBIFS_INODE_TYPES(target_node.type).name})")
-        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
-            target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
-            print(f"{UBIFS_KEY(bytes(target_node.key)[:8])} -> {target_node.key}")
-            print(target_node)
+        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+            target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+            key = UBIFS_KEY(bytes(target_node.key[:8]))
+            print(
+                f"{target_node.formatted_name()} -> key:{key} {target_node.inum} ({UBIFS_INODE_TYPES(target_node.type).name})")
+        # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+        #     target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+        #     print(f"{UBIFS_KEY(bytes(target_node.key)[:8])} -> {target_node.key}")
+        #     print(target_node)
 
     def _create_idx_node(self, branch: UBIFS_BRANCH) -> UBIFS_IDX_NODE:
         """

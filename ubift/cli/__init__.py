@@ -2,11 +2,12 @@ import argparse
 import errno
 import logging
 import sys
+from typing import Any, List
 
-from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image
+from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents
 from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
-from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE
+from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_INODE_TYPES
 from ubift.framework.ubi import UBI
 from ubift.framework.ubifs import UBIFS
 
@@ -66,14 +67,23 @@ class CommandLine:
         lebcat.set_defaults(func=self.lebcat)
 
         # fsstat
-        fsstat = subparsers.add_parser("fsstat", help="Outputs information regarding the file-system in a specific UBI volume.")
-        fsstat.add_argument("input", help="Input flash memory dump.")
-        fsstat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
-        fsstat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
-        fsstat.set_defaults(func=self.fsstat)
+        # fsstat = subparsers.add_parser("fsstat", help="Outputs information regarding the file-system in a specific UBI volume.")
+        # fsstat.add_argument("input", help="Input flash memory dump.")
+        # fsstat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        # fsstat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        # fsstat.set_defaults(func=self.fsstat)
+
+        # fls
+        fls = subparsers.add_parser("fls", help="Outputs information regarding file names in a specific UBI volume.")
+        fls.add_argument("input", help="Input flash memory dump.")
+        fls.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        fls.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        fls.add_argument("--path", "-p", help="If set, will output full paths for every file.", default=False, action="store_true")
+        fls.add_argument("--scan", "-s", help="If set, will perform scanning for signatures instead of traversing the file-index.", default=False, action="store_true")
+        fls.set_defaults(func=self.fls)
 
         # Adds default arguments such as --blocksize to all previously defined commands
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fsstat]
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls]
         for command in commands:
             self.add_default_image_args(command)
 
@@ -92,6 +102,37 @@ class CommandLine:
         parser.add_argument("--blocksize", help="Block size in Bytes. If not specified, will try to guess the block size based on UBI headers.", type=int)
         parser.add_argument("--verbose", help="Outputs a lot more debug information", default=False, action="store_true")
 
+    def _initialize_image(self, data: Any, args: argparse.Namespace) -> Image:
+        """
+        Convenience method for initalizing an instance of Image with default args
+        :param data: Flash dump
+        :param args: default args that contains blocksiz etc.
+        :return: An instance of Image or None if it fails
+        """
+        oob_size = args.oob if args.oob is not None and args.oob > 0 else -1
+        page_size = args.pagesize if args.pagesize is not None and args.pagesize > 0 else -1
+        block_size = args.blocksize if args.blocksize is not None and args.blocksize > 0 else -1
+
+        return Image(data, block_size, page_size, oob_size)
+
+    def _initialize_ubi_instances(self, image: Image, do_partitioning: bool = False) -> List[UBI]:
+        """
+        Convenience method for initalizing all UBI instances in an Image (requires the Partitions that include an UBI instance to be named "UBI")
+        :param image: Image
+        :param do_partitioning: If True, will partition the Image using an UBIPartitioner
+        :return: List of initialized UBI instances
+        """
+        ubi_instances = []
+
+        if do_partitioning:
+            image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
+
+        for partition in image.partitions:
+            if partition.name == "UBI":
+                ubi = UBI(partition)
+                ubi_instances.append(ubi)
+        return ubi_instances
+
     @classmethod
     def verbose(cls, args: argparse.Namespace) -> None:
         """
@@ -102,10 +143,54 @@ class CommandLine:
         if hasattr(args, "verbose") and args.verbose is False:
             logging.disable(logging.INFO)
 
+    def fls(self, args) -> None:
+        """
+        Lists all files by analyzing UBIFS_DENT_NODES. They can either be found by traversing the file-index
+        or by scanning for ubifs_ch headers and checking if they are of type UBIFS_DENT_NODE.
+        Example: /ubift.py fls "/path/to/dump" 445 linux
+        :param args:
+        :return:
+        """
+        CommandLine.verbose(args)
+
+        input = args.input
+        ubi_offset = args.offset
+        ubi_vol_name = args.vol_name
+        use_full_paths = args.path
+        do_scan = args.scan
+
+        with open(input, "rb") as f:
+            data = f.read()
+
+            image = self._initialize_image(data, args)
+            ubi_instances = self._initialize_ubi_instances(image, True)
+
+            for ubi in ubi_instances:
+                if ubi.peb_offset == ubi_offset and ubi.get_volume(ubi_vol_name) is not None:
+                    vol = ubi.get_volume(ubi_vol_name)
+                    ubifs = UBIFS(vol)
+
+                    # Traverse B-Tree and collect all dents (inodes dont matter here but are collected too)
+                    # TODO: Maybe traverse etc shouldnt be protected functions
+                    if do_scan:
+                        dents = []
+                        ubifs._scan(ubifs._dent_scan_visitor, dents=dents)
+                        render_dents(ubifs, dents, use_full_paths)
+                    else:
+                        inodes = {}
+                        dents = {}
+                        ubifs._traverse(ubifs._root_idx_node, ubifs._inode_dent_collector_visitor, inodes=inodes, dents=dents)
+                        render_dents(ubifs, dents, use_full_paths)
+
+                    return
+
+            rootlog.error(f"[-] UBI Volume {ubi_vol_name} could not be found.")
+
     def lebcat(self, args) -> None:
         """
         Prints the data of a specific LEB of a specific UBI Volume to stdout
         Example: ./ubift.py lebcat "/path/to/dump" 445 linux 463
+        (Outputs LEB 463 of UBI Volume 'linux' whose UBI Instance starts at PEB 445)
         :param args:
         :return:
         """
@@ -119,7 +204,7 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, -1, -1, -1)
+            image = self._initialize_image(data, args)
             image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
 
             for part in image.partitions:
@@ -150,7 +235,7 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, -1, -1, -1)
+            image = self._initialize_image(data, args)
             image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
 
             for part in image.partitions:
@@ -174,7 +259,7 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, -1, -1, -1)
+            image = self._initialize_image(data, args)
             if block_num < 0 or block_num > len(image.data) // image.block_size:
                 rootlog.error("[-] Invalid physical Erase Block index.")
             else:
@@ -193,7 +278,7 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, -1, -1, -1)
+            image = self._initialize_image(data, args)
             image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
             for partition in image.partitions:
                 ubi = UBI(partition)
@@ -210,7 +295,7 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, -1, -1, -1)
+            image = self._initialize_image(data, args)
             image.partitions = UBIPartitioner().partition(image, fill_partitions=False)
 
             for part in image.partitions:
@@ -225,14 +310,11 @@ class CommandLine:
         CommandLine.verbose(args)
 
         input = args.input
-        oob_size = args.oob if args.oob is not None and args.oob > 0 else -1
-        page_size = args.pagesize if args.pagesize is not None and args.pagesize > 0 else -1
-        block_size = args.blocksize if args.blocksize is not None and args.blocksize > 0 else -1
 
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, block_size, page_size, oob_size)
+            image = self._initialize_image(data, args)
             image.partitions = UBIPartitioner().partition(image, fill_partitions=True)
 
             render_image(image)
@@ -246,7 +328,7 @@ class CommandLine:
         with open(input, "rb") as f:
             data = f.read()
 
-            image = Image(data, -1, -1, -1)
+            image = self._initialize_image(data, args)
             image.partitions = UBIPartitioner().partition(image, fill_partitions=True)
 
             if num < 0 or num >= len(image.partitions):

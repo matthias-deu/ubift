@@ -80,10 +80,10 @@ class UBIFS_KEY:
     @classmethod
     def create_key(cls, inum: int, key_type: UBIFS_KEY_TYPES, payload: bytes = 0) -> 'UBIFS_KEY':
         """
-        Creates an instance of a UBIFS_KEY with given parameters. The payload can be None, putting 0-bytes in their place.
-        :param inum: inode number
-        :param key_type: Type of the key, see 'UBIFS_KEY_TYPES'-Enum for possible types.
-        :param payload: Payload (last 29bits of key), can be None, in which case 0-bits will be used.
+        Creates an instance of a UBIFS_KEY with given parameters.
+        :param inum: inode number (32bits)
+        :param key_type: Type of the key, see 'UBIFS_KEY_TYPES'-Enum for possible types. (3bits)
+        :param payload: Payload (last 29bits of key), its meaníng depends on key_type.
         :return: Returns an instance of UBIFS_KEY
         """
         return UBIFS_KEY(struct.pack("<LL", inum, (key_type << 29) | payload))
@@ -100,7 +100,7 @@ class UBIFS_KEY:
 
 class UBIFS_CH(MemCStructExt):
     __byte_order__ = LITTLE_ENDIAN
-    __magic__ = "\x06\x10\x18\x31".encode("utf-8")  # 0x06101831
+    __magic__ = "\x06\x10\x18\x31".encode("utf-8")  # 0x06101831   \x31\x18\x10\x06
     __def__ = COMMON_TYPEDEFS + """
         struct ubifs_ch {
             __le32 magic;
