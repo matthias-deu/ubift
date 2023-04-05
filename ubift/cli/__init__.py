@@ -66,6 +66,7 @@ class CommandLine:
         lebcat.add_argument("leb", help="Number of the logical erase block. Use 'lebls' to determine LEBs.", type=int)
         lebcat.set_defaults(func=self.lebcat)
 
+        # WiP
         # fsstat
         # fsstat = subparsers.add_parser("fsstat", help="Outputs information regarding the file-system in a specific UBI volume.")
         # fsstat.add_argument("input", help="Input flash memory dump.")
@@ -142,6 +143,7 @@ class CommandLine:
         """
         if hasattr(args, "verbose") and args.verbose is False:
             logging.disable(logging.INFO)
+            logging.disable(logging.WARN)
 
     def fls(self, args) -> None:
         """

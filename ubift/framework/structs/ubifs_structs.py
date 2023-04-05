@@ -356,7 +356,7 @@ class UBIFS_DENT_NODE(MemCStructExt):
         """
         formatted_name = [f"{x:x}" for x in list(self.name)]
         formatted_name = "".join(formatted_name)
-        return bytearray.fromhex(formatted_name).decode()
+        return bytearray.fromhex(formatted_name).decode(errors="ignore")
 
 
 # Maps node_type number to a specific class implementing that node type

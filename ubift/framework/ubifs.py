@@ -59,7 +59,7 @@ class UBIFS:
 
     def _scan(self, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs) -> None:
         """
-        Scans the UBI instance for UBIFS_CH signatures. This will naturally find a lot more than using _traverse, i.e., nodes that are obsolete.
+        Scans the UBI instance for UBIFS_CH signatures. This will naturally find a lot more than using _traverse, for instance nodes that are obsolete.
         :param traversal_function: Function that will be called for every found signature
         :param kwargs:
         :return:
@@ -77,7 +77,7 @@ class UBIFS:
                 ch_hdr = UBIFS_CH(partition.image.data, index)
                 peb = index // partition.image.block_size
                 peb_offset = index - (peb * partition.image.block_size)
-                traversal_function(ch_hdr, peb, peb_offset, **kwargs) # Traversel function is called with PEB num and offset
+                traversal_function(ch_hdr, peb, peb_offset, **kwargs) # Traversal function is called with PEB num and offset
             except:
                 ubiftlog.warn(f"[-] Possibly invalid UBIFS_CH at PEB {peb} offset {peb_offset}.")
 
@@ -93,12 +93,12 @@ class UBIFS:
         """
         Fetches the complete path of an UBIFS_DENT_NODE up to the root.
         UBIFS_DENT_NODE have 2 inode numbers, one (inside the key[] has the inode number of the parent] and dent.inum is its own inode number)
-        Unrolled will fetch the UBIFS_DENT_NODE of the parent recursivly until the dent.inum==0(root-directory) has been reached.
+        Unroll will fetch the UBIFS_DENT_NODE of the parent recursivly until the dent.inum==0(root-directory) has been reached.
         :param dent: The directory  ntry that will have its path unrolled up to the root
         :param dents: All available directory entry nodes
         :return:
         """
-        # The parent-inode of the directory entry is saved in the first 32-Bits of it key
+        # The parent-inode of the directory entry is saved in the first 32-Bits of its key
         key = UBIFS_KEY(bytes(dent.key[:8]))
         parent_inum = key.inode_num
 
@@ -227,9 +227,9 @@ class UBIFS:
                                       **kwargs) -> None:
         """
         A Visitor that collects all nodes of types UBIFS_DENT_NODE and UBIFS_INO_NODE and stores them in the dicts 'inodes' and 'dents'
-        :param ch_hdr: Will be provided by _travers-function
-        :param leb_num: Will be provided by _travers-function
-        :param leb_offs: Will be provided by _travers-function
+        :param ch_hdr: Will be provided by _traverse-function
+        :param leb_num: Will be provided by _traverse-function
+        :param leb_offs: Will be provided by _traverse-function
         :param inodes: Collected nodes of type UBIFS_INO_NODE
         :param dents: Collected nodes of type UBIFS_DENT_NODE
         :param kwargs:
@@ -267,7 +267,7 @@ class UBIFS:
         target_node = UBIFS_CH(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
         if not target_node.validate_magic():
             ubiftlog.warn(
-                f"[-] Encountered an invalid node at LEB {branch.lnum} at offset {branch.offs}. (ch_hdr magic does not match)")
+                f"[!] Encountered an invalid node at LEB {branch.lnum} at offset {branch.offs}. (ch_hdr magic does not match)")
             return None
         if target_node.node_type == UBIFS_NODE_TYPES.UBIFS_IDX_NODE:
             target_node = UBIFS_IDX_NODE(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
