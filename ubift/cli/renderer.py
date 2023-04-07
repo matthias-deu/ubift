@@ -1,12 +1,16 @@
 import logging
 import sys
-from typing import Dict
+import tempfile
+from typing import Dict, List
 
+from ubift.framework import ubifs
 from ubift.framework.mtd import Image
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
-from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_TYPES
+from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_TYPES, UBIFS_INO_NODE, UBIFS_KEY, \
+    UBIFS_DATA_NODE, UBIFS_KEY_TYPES
 from ubift.framework.ubi import UBIVolume
 from ubift.framework.ubifs import UBIFS
+from ubift.logging import ubiftlog
 
 
 def readable_size(num: int, suffix="B"):
@@ -52,12 +56,13 @@ def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
 
     outfd.write(f"UBI Instances: {len(ubi_instances)}\n\n")
 
-    for i,ubi in enumerate(ubi_instances):
+    for i, ubi in enumerate(ubi_instances):
         outfd.write(f"UBI Instance {i}\n")
         outfd.write(f"PEB Offset: {ubi.partition.offset // image.block_size}\n")
-        outfd.write(f"Physical Erase Blocks: {len(ubi.partition.data) // image.block_size} (start:{ubi.partition.offset} end:{ubi.partition.end})\n")
+        outfd.write(
+            f"Physical Erase Blocks: {len(ubi.partition.data) // image.block_size} (start:{ubi.partition.offset // image.block_size} end:{ubi.partition.end // image.block_size})\n")
         outfd.write(f"Volumes: {len(ubi.volumes)}\n")
-        for i,vol in enumerate(ubi.volumes):
+        for i, vol in enumerate(ubi.volumes):
             outfd.write(f"Volume {vol._vol_num}\n")
             outfd.write(f"Name: {vol.name}\n")
             render_ubi_vtbl_record(vol._vtbl_record, outfd)
@@ -79,7 +84,56 @@ def render_lebs(vol: UBIVolume, outfd=sys.stdout):
     lebs = list(vol.lebs.values())
     lebs.sort(key=lambda leb: leb.leb_num)
     for leb in lebs:
-        outfd.write(f"{zpad(leb.leb_num,5)}\t--->\t{zpad(leb._peb_num, 5)}\n")
+        outfd.write(f"{zpad(leb.leb_num, 5)}\t--->\t{zpad(leb._peb_num, 5)}\n")
+
+
+def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_NODE], outfd=sys.stdout) -> None:
+    """
+    Outputs the content of given data nodes. Also does some validation checks, e.g., checks if size of uncompressed
+     data matches the size field in the corersponding UBIFS_INO_NODE
+    :param inode_num:
+    :param data_nodes:
+    :param outfd:
+    :return:
+    """
+    ubiftlog.info(f"[+] Found {len(data_nodes)} data nodes for inode number {inode_num}.")
+
+    if data_nodes is None or len(data_nodes) == 0:
+        ubiftlog.error(f"[-] No data nodes for inode number {inode_num} could not be found.")
+        return
+    else:
+        with tempfile.TemporaryFile(mode='w+b') as temp_file:
+            accu_size = 0  # accumulated size of uncompressed data from data nodes
+            for data_node in data_nodes:
+                data_node_key = UBIFS_KEY.from_bytearray(data_node.key)
+                block = data_node_key.payload
+
+                temp_file.seek(4096 * block)
+                temp_file.write(data_node.decompressed_data)
+
+                accu_size += len(data_node.decompressed_data)
+
+            # Fetch inode_node and do some validation checks (compare its 'size' field with accumulated size of uncompressed data)
+            inode_node = ubifs._find(ubifs._root_idx_node,
+                                     UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0))
+            if inode_node.ino_size > accu_size:
+                ubiftlog.error(
+                    f"[!] Size from inode field {inode_node.ino_size} is more than written bytes {accu_size}.")
+                temp_file.seek(inode_node.ino_size)
+                temp_file.truncate(inode_node.ino_size)
+            elif accu_size > inode_node.ino_size:
+                ubiftlog.error(
+                    f"[-] More data has been written ({accu_size}) than what should have written indicated by inode size {inode_node.ino_size}.")
+
+            # Write data to disk or to stdout
+            temp_file.seek(0)
+            outfd.buffer.write(temp_file.read())
+            ubiftlog.info(f"[+] Wrote {accu_size} bytes from data nodes for inum {inode_num}")
+
+            temp_file.close()
+            outfd.close()
+
+            return
 
 
 def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
@@ -92,10 +146,19 @@ def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
     outfd.write(f"Reserved PEBs: {vtbl_record.reserved_pebs}\n")
     outfd.write(f"Alignment: {vtbl_record.alignment}\n")
     outfd.write(f"Data Pad: {vtbl_record.data_pad}\n")
-    outfd.write(f"Volume Type: {'STATIC' if vtbl_record.vol_type == 2 else 'DYNAMIC' if vtbl_record.vol_type == 1 else 'UNKNOWN'}\n")
+    outfd.write(
+        f"Volume Type: {'STATIC' if vtbl_record.vol_type == 2 else 'DYNAMIC' if vtbl_record.vol_type == 1 else 'UNKNOWN'}\n")
     outfd.write(f"Update Marker: {vtbl_record.upd_marker}\n")
     outfd.write(f"Flags: {vtbl_record.flags}\n")
     outfd.write(f"CRC: {vtbl_record.crc}\n")
+
+
+def render_inode_node(ubifs: UBIFS, inode: int, inode_node: UBIFS_INO_NODE, outfd=sys.stdout):
+    # TODO: Everything is displayed in DEZIMAL, maybe this is not the best format for this case.
+    outfd.write(f"Inode {inode} of UBI Volume {ubifs.ubi_volume.name}\n")
+    for field in inode_node.__fields__:
+        print(f"{field}: {getattr(inode_node, field)}")
+
 
 def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout) -> None:
     """
@@ -117,6 +180,7 @@ def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bo
         else:
             outfd.write(f"{dent.formatted_name()}")
         outfd.write("\n")
+
 
 def render_inode_type(inode_type: int, outfd=sys.stdout):
     """

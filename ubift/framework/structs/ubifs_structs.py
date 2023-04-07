@@ -1,11 +1,29 @@
+# NOTE!
+# The structs and enums etc are taken from the Linux kernel at /linux/fs/ubifs/ubifs-media.h
+
 import struct
 from functools import total_ordering
-from typing import Dict, Any, List
+from typing import Any, List
 
 from cstruct import LITTLE_ENDIAN, CEnum
 
+from ubift import exception
+from ubift.framework import compression
 from ubift.framework.structs.structs import MemCStructExt, COMMON_TYPEDEFS
+from ubift.logging import ubiftlog
 
+
+class UBIFS_COMPRESSION_TYPE(CEnum):
+    __size__ = 2
+    __def__ = """
+        enum {
+            UBIFS_COMPR_NONE,
+            UBIFS_COMPR_LZO,
+            UBIFS_COMPR_ZLIB,
+            UBIFS_COMPR_ZSTD,
+            UBIFS_COMPR_TYPES_CNT,
+        };
+    """
 
 class UBIFS_INODE_TYPES(CEnum):
     __size__ = 1
@@ -16,7 +34,7 @@ class UBIFS_INODE_TYPES(CEnum):
             UBIFS_ITYPE_LNK,  /* soft link */
             UBIFS_ITYPE_BLK,  /* block device node */
             UBIFS_ITYPE_CHR,  /* character device node*/
-            UBIFS_ITYPE_FIFO, /* fifo*/
+            UBIFS_ITYPE_FIFO, /* fifo */
             UBIFS_ITYPE_SOCK, /* socket */
             UBIFS_ITYPES_CNT, /* counth of possible inode types */
         };
@@ -87,6 +105,18 @@ class UBIFS_KEY:
         :return: Returns an instance of UBIFS_KEY
         """
         return UBIFS_KEY(struct.pack("<LL", inum, (key_type << 29) | payload))
+
+    @classmethod
+    def from_bytearray(cls, bytes_list: List[int]) -> 'UBIFS_KEY':
+        """
+        Creates an instance of UBIFS_KEY for a given array of bytes (which is the format provided by cstruct)
+        :param bytes_list: Array of bytes for the key, i.e. key = [232, 21, ....] (either full length of 16 bytes or 8 bytes)
+        :return: Instance of UBIFS_KEY if invalid array of bytes
+        """
+        if len(bytes_list) > 16 or len(bytes_list) < 8:
+            ubiftlog.info(f"[!] Cannot create UBIFS_KEY from bytes, because it has invalid size: {bytes_list}")
+
+        return UBIFS_KEY(bytes(bytes_list[:8]))
 
     def pack(self) -> bytes:
         return struct.pack("<LL", self.inode_num, (self.key_type << 29) | self.payload)
@@ -169,6 +199,25 @@ class UBIFS_BRANCH(MemCStructExt):
 
 
 class UBIFS_DATA_NODE(MemCStructExt):
+    def __init__(self, data: bytes, offset: int, *args, **kwargs):
+        """
+        Creates an instance of a UBIFS_DENT_NODE. Automatically parses its name based on name_len.
+        :param data:
+        :param offset:
+        :param args:
+        :param kwargs:
+        """
+        self.decompr_data = None
+        compr_data_len = UBIFS_CH(data, offset).len - UBIFS_DATA_NODE.__size__
+
+        if compr_data_len > 4096:
+            raise exception.UBIFTException(f"[-] More than 4096 bytes of data found in a data node, which is not possible. {compr_data_len}")
+
+        if compr_data_len is not None and compr_data_len > 0:
+            self.set_flexible_array_length(compr_data_len)
+
+        super().__init__(data, offset, *args, **kwargs)
+
     __byte_order__ = LITTLE_ENDIAN
     __def__ = COMMON_TYPEDEFS + """
         struct ubifs_data_node {
@@ -180,6 +229,17 @@ class UBIFS_DATA_NODE(MemCStructExt):
             __u8 data[];
         } __packed;
     """
+
+    @property
+    def decompressed_data(self, force_reload: bool = False):
+        if self.decompr_data is not None and not force_reload:
+            return self.decompr_data
+        else:
+            self.decompr_data = compression.decompress(bytes(self.data), self.compr_type, self.data_size)
+            if len(self.decompr_data) != self.data_size:
+                ubiftlog.warn(f"[-] Data node decompressed data does not equal its data size {self.decompr_data} -> {self.data_size}")
+            return self.decompr_data
+
 
 
 class UBIFS_IDX_NODE(MemCStructExt):
@@ -385,6 +445,11 @@ def parse_arbitrary_node(data: bytes, offset: int) -> Any:
     :param offset: Offset in data where the node starts
     :return: Specific node instance, depending on node_type in the common header
     """
-    ch_hdr = UBIFS_CH(data, offset)
-    cls = node_mapping[ch_hdr.node_type]
-    return cls(data, offset)
+    try:
+        ch_hdr = UBIFS_CH(data, offset)
+        cls = node_mapping[ch_hdr.node_type]
+        node = cls(data, offset)
+        return node
+    except:
+        ubiftlog.warn(f"[!] Could not parse arbitrary node, it might be corrupted. ({ch_hdr})")
+        return None

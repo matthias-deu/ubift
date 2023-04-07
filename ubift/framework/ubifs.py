@@ -2,10 +2,13 @@ import struct
 import uuid
 from typing import List, Callable, Any
 
+import lzo
+
 from ubift import exception
+from ubift.framework import compression
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_MST_NODE, UBIFS_NODE_TYPES, UBIFS_CH, \
     UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, \
-    UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node
+    UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node, UBIFS_KEY_TYPES, UBIFS_DATA_NODE
 from ubift.framework.ubi import UBIVolume, LEB
 from ubift.framework.util import crc32, find_signature
 from ubift.logging import ubiftlog
@@ -67,23 +70,28 @@ class UBIFS:
         ubi = self._ubi_volume.ubi
         partition = self._ubi_volume.ubi.partition
         if len(ubi.volumes) > 1:
-            ubiftlog.warn("[-] The UBI instance has more than one volume, therefore it wont be clear to which volume the parsed nodes belong to. LEB information cannot be used because it cannot be assured that a vid header is written to the LEB (only EC).")
+            # TODO: maybe this is not true because they have not been erased, so compare their vid_hdr with ubi volume index
+            ubiftlog.warn(
+                "[-] The UBI instance has more than one volume, therefore it wont be clear to which volume the parsed nodes belong to. LEB information cannot be used because it cannot be assured that a vid header is written to the LEB (only EC).")
 
         start_offset = ubi.partition.offset
         stop_offset = ubi.partition.end
-        index = find_signature(partition.image.data, "\x31\x18\x10\x06".encode("utf-8"), start_offset) # TODO: __magic__ is BIG_ENDIAN but UBIFS_CH are LITTLE_ENDIAN
+        index = find_signature(partition.image.data, "\x31\x18\x10\x06".encode("utf-8"),
+                               start_offset)  # TODO: __magic__ is BIG_ENDIAN but UBIFS_CH are LITTLE_ENDIAN
         while 0 <= index < stop_offset:
             try:
                 ch_hdr = UBIFS_CH(partition.image.data, index)
                 peb = index // partition.image.block_size
                 peb_offset = index - (peb * partition.image.block_size)
-                traversal_function(ch_hdr, peb, peb_offset, **kwargs) # Traversal function is called with PEB num and offset
+                traversal_function(ch_hdr, peb, peb_offset,
+                                   **kwargs)  # Traversal function is called with PEB num and offset
             except:
                 ubiftlog.warn(f"[-] Possibly invalid UBIFS_CH at PEB {peb} offset {peb_offset}.")
 
             index = find_signature(partition.image.data, "\x31\x18\x10\x06".encode("utf-8"), index + 1)
 
-    def _dent_scan_visitor(self, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: int, dents: List[UBIFS_DENT_NODE], **kwargs) -> None:
+    def _dent_scan_visitor(self, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: int, dents: List[UBIFS_DENT_NODE],
+                           **kwargs) -> None:
         if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
             block_size = self.ubi_volume.ubi.partition.image.block_size
             dent_node = UBIFS_DENT_NODE(self.ubi_volume.ubi.partition.image.data, peb_num * block_size + peb_offs)
@@ -164,6 +172,69 @@ class UBIFS:
 
         return root_idx
 
+    def _find_range(self, node: Any, min_key: UBIFS_KEY, max_key: UBIFS_KEY, _result: List[Any] = []) -> List[Any]:
+        """
+        Searched for nodes that have a key of min_key <= key < max_key
+        :param node:
+        :param min_key:
+        :param max_key:
+        :param _result: Private list that is passed to recursive calls
+        :return:
+        """
+        # Fix because if there is only one UBIFS_BRANCH, it will not be in a List for some reason
+        if isinstance(node.branches, UBIFS_BRANCH):
+            node.branches = [node.branches]
+
+        if _result is None:
+            _result = []
+
+        # At level 0, select all leafs that are within [min, max)
+        if node.level == 0:
+            for i, branch in enumerate(node.branches):
+                if min_key <= branch.python_key() < max_key:
+                    target_node = parse_arbitrary_node(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
+                    if target_node is not None:
+                        _result.append(target_node)
+            return _result
+
+        # Select all branches that are within [min, max)
+        start_index = None
+        end_index = None
+        for i, branch in enumerate(node.branches):
+            branch_key = branch.python_key()
+            if branch_key > min_key and start_index is None:
+                if i == 0:
+                    start_index = 0
+                else:
+                    start_index = i - 1
+            elif branch_key > max_key and end_index is None:
+                if i == len(node.branches) - 1:
+                    end_index = len(node.branches) - 1
+                    if start_index is None:
+                        start_index = end_index
+                    break
+                else:
+                    end_index = i - 1
+                    if start_index is None:
+                        start_index = end_index
+                    break
+            if end_index is None and i == len(node.branches) - 1:
+                end_index = len(node.branches) - 1
+                if start_index is None:
+                    start_index = end_index
+                break
+
+        # Recursivly call this function for all selected branches
+        for i in range(start_index, end_index + 1):
+            branch = node.branches[i]
+            target_node = parse_arbitrary_node(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
+            if isinstance(target_node, UBIFS_IDX_NODE):
+                _result += self._find_range(target_node, min_key, max_key, [])
+            else:
+                ubiftlog.error("[-] Encountering non-index node while traversing B-Tree.")
+
+        return _result
+
     def _find(self, node: Any, key: UBIFS_KEY) -> Any:
         """
         Searches for a specific UBIFS_KEY key within the B-Tree with a given root.
@@ -186,7 +257,10 @@ class UBIFS:
                     sel_branch = node.branches[i - 1]
                     break
             elif key == branch_key:
-                return parse_arbitrary_node(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
+                if node.level == 0:
+                    return parse_arbitrary_node(self.ubi_volume.lebs[branch.lnum].data, branch.offs)
+                else:
+                    sel_branch = branch
         # Greater than last branch, so use last branch.
         if sel_branch is None:
             sel_branch = node.branches[-1]
@@ -243,12 +317,15 @@ class UBIFS:
             key = UBIFS_KEY(bytes(inode_node.key[:8]))
             inodes[key.inode_num] = inode_node
 
-    def _test_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, **kwargs) -> None:
-        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
-            target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+    def _test_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, list=[], **kwargs) -> None:
+        if not ch_hdr.validate_magic():
+            return
+
+        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DATA_NODE:
+            target_node = UBIFS_DATA_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
             key = UBIFS_KEY(bytes(target_node.key[:8]))
-            print(
-                f"{target_node.formatted_name()} -> key:{key} {target_node.inum} ({UBIFS_INODE_TYPES(target_node.type).name})")
+            if key.inode_num == 2864:
+                list.append(target_node)
         # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
         #     target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
         #     print(f"{UBIFS_KEY(bytes(target_node.key)[:8])} -> {target_node.key}")
