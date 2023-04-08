@@ -100,7 +100,6 @@ class InodeMode:
     _file_types = {12: "SOCKET", 10: "LINK", 8: "FILE", 14: "BLOCK DEV", 4: "DIR", 2: "CHAR DEV", 1: "FIFO"}
 
     def __init__(self, mode: int) -> None:
-
         self.mode = mode
 
     @property
@@ -109,8 +108,8 @@ class InodeMode:
 
     @property
     def owner_perm(self) -> str:
-        owner_bits = self.mode>>6&7
-        suid_bit = (self.mode>>11)&1
+        owner_bits = self.mode >> 6 & 7
+        suid_bit = (self.mode >> 11) & 1
         r = f"{'r' if (owner_bits >> 2) & 1 else '-'}"
         w = f"{'w' if (owner_bits >> 1) & 1 else '-'}"
         if suid_bit:
@@ -232,7 +231,7 @@ def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_
                                      UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0))
             if inode_node.ino_size > accu_size:
                 ubiftlog.error(
-                    f"[!] Size from inode field {inode_node.ino_size} is more than written bytes {accu_size}.")
+                    f"[!] Size from inode field {inode_node.ino_size} is more than written bytes {accu_size}. Filling bytes with zeroes.")
                 temp_file.seek(inode_node.ino_size)
                 temp_file.truncate(inode_node.ino_size)
             elif accu_size > inode_node.ino_size:
@@ -269,7 +268,7 @@ def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
 
 def render_inode_node(ubifs: UBIFS, inode: int, inode_node: UBIFS_INO_NODE, outfd=sys.stdout):
     # TODO: Everything is displayed in DEZIMAL, maybe this is not the best format for this case.
-    outfd.write(f"Inode {inode} of UBI Volume {ubifs.ubi_volume.name}\n")
+    # outfd.write(f"Inode {inode} of UBIFS Instance in UBI Volume {ubifs.ubi_volume.name}\n")
     for field in inode_node.__fields__:
         print(f"{field}: {getattr(inode_node, field)}")
 

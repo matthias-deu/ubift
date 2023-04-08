@@ -34,12 +34,12 @@ class CommandLine:
         subparsers = parser.add_subparsers(dest="command", help="Commands to run", required=True)
 
         # mtdls
-        mtdls = subparsers.add_parser("mtdls", help="Lists information about all available Partitions, including UBI instances.")
+        mtdls = subparsers.add_parser("mtdls", help="Lists information about all available Partitions, including UBI instances. UBI instances have the description 'UBI'.")
         mtdls.add_argument("input", help="Input flash memory dump.")
         mtdls.set_defaults(func=self.mtdls)
 
         # mtdcat
-        mtdcat = subparsers.add_parser("mtdcat", help="Outputs the binary data of an MTD partition, given by its index.")
+        mtdcat = subparsers.add_parser("mtdcat", help="Outputs the binary data of an MTD partition, given by its index. Use 'mtdls' to see all indeces.")
         mtdcat.add_argument("input", help="Input flash memory dump.")
         mtdcat.add_argument("index", type=int)
         mtdcat.set_defaults(func=self.mtdcat)
@@ -70,16 +70,15 @@ class CommandLine:
         lebcat.add_argument("leb", help="Number of the logical erase block. Use 'lebls' to determine LEBs.", type=int)
         lebcat.set_defaults(func=self.lebcat)
 
-        # WiP
         # fsstat
-        # fsstat = subparsers.add_parser("fsstat", help="Outputs information regarding the file-system in a specific UBI volume.")
-        # fsstat.add_argument("input", help="Input flash memory dump.")
-        # fsstat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
-        # fsstat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
-        # fsstat.set_defaults(func=self.fsstat)
+        fsstat = subparsers.add_parser("fsstat", help="Outputs information regarding the UBIFS file-system within a specific UBI volume.")
+        fsstat.add_argument("input", help="Input flash memory dump.")
+        fsstat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        fsstat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        fsstat.set_defaults(func=self.fsstat)
 
         # fls
-        fls = subparsers.add_parser("fls", help="Outputs information regarding file names in a specific UBI volume.")
+        fls = subparsers.add_parser("fls", help="Outputs information regarding file names in an UBIFS instance within a specific UBI volume.")
         fls.add_argument("input", help="Input flash memory dump.")
         fls.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
         fls.add_argument("vol_name", help="Name of the UBI volume.", type=str)
@@ -112,7 +111,7 @@ class CommandLine:
         ils.set_defaults(func=self.ils)
 
         # Adds default arguments such as --blocksize to all previously defined commands
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils]
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat]
         for command in commands:
             self.add_default_image_args(command)
 
@@ -443,6 +442,15 @@ class CommandLine:
                     for ubi_vol in part.ubi_instance.volumes:
                         if ubi_vol.name == ubi_vol_name:
                             ubifs = UBIFS(ubi_vol)
+
+                            sys.stdout.write("Superblock node:\n")
+                            for field in ubifs.superblock.__fields__:
+                                sys.stdout.write(f"{field}: {getattr(ubifs.superblock, field)}\n")
+
+                            sys.stdout.write("\nMaster node:\n")
+                            for field in ubifs.masternodes[0].__fields__:
+                                sys.stdout.write(f"{field}: {getattr(ubifs.masternodes[0], field)}\n")
+
                             return
 
     def mtdls(self, args):
