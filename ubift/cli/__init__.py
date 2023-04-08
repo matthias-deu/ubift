@@ -7,7 +7,7 @@ import tempfile
 from typing import Any, List
 
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
-    render_data_nodes
+    render_data_nodes, render_inode_list
 from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_INODE_TYPES, UBIFS_KEY, UBIFS_KEY_TYPES
@@ -104,8 +104,15 @@ class CommandLine:
         icat.add_argument("-o", "--output", help="If specified, will output data to given file.", type=argparse.FileType('w'))
         icat.set_defaults(func=self.icat)
 
+        # ils
+        ils = subparsers.add_parser("ils", help="Lists all inodes of a given UBIFS instance.")
+        ils.add_argument("input", help="Input flash memory dump.")
+        ils.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        ils.add_argument("vol_name", help="Name of the UBI volume that contains the UBIFS instance.", type=str)
+        ils.set_defaults(func=self.ils)
+
         # Adds default arguments such as --blocksize to all previously defined commands
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat]
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils]
         for command in commands:
             self.add_default_image_args(command)
 
@@ -202,6 +209,41 @@ class CommandLine:
                         return
 
             rootlog.error(f"[-] Inode {inode_num} could not be found in UBIFS of UBI Volume {ubi_vol_name}.")
+
+    def ils(self, args) -> None:
+        """
+        Lists all available inodes of an UBIFS instance (by default by traversing its B-Tree)
+        :param args:
+        :return:
+        """
+        CommandLine.verbose(args)
+
+        input = args.input
+        ubi_offset = args.offset
+        ubi_vol_name = args.vol_name
+
+        with open(input, "rb") as f:
+            data = f.read()
+
+            image = self._initialize_image(data, args)
+            ubi_instances = self._initialize_ubi_instances(image, True)
+
+            for ubi in ubi_instances:
+                if ubi.peb_offset == ubi_offset and ubi.get_volume(ubi_vol_name) is not None:
+                    vol = ubi.get_volume(ubi_vol_name)
+                    ubifs = UBIFS(vol)
+
+                    inodes = {}
+                    dents = {}
+                    ubifs._traverse(ubifs._root_idx_node, ubifs._inode_dent_collector_visitor, inodes=inodes,
+                                    dents=dents)
+
+                    render_inode_list(image, ubifs, inodes)
+
+                    return
+
+            ubiftlog.error(
+                f"[-] UBI Volume {ubi_vol_name} could not be found. Use 'mtdls' and 'ubils' to determine available UBI instances and their volumes.")
 
     def icat(self, args) -> None:
         """

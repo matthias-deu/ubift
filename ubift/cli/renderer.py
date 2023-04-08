@@ -1,6 +1,7 @@
 import logging
 import sys
 import tempfile
+from datetime import datetime
 from typing import Dict, List
 
 from ubift.framework import ubifs
@@ -25,7 +26,7 @@ def readable_size(num: int, suffix="B"):
         return "-"
     for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
         if abs(num) < 1024.0:
-            return f"{num:3.1f}{unit}{suffix}"
+            return f"{num:3.1f}{unit}{suffix}" if unit != "" else f"{num:}B"
         num /= 1024.0
     return f"{num:.1f}Yi{suffix}"
 
@@ -42,6 +43,110 @@ def zpad(num: int, len: str) -> int:
     return format(num, len)
 
 
+def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
+                      outfd=sys.stdout) -> None:
+    """
+    Renders a list of inodes to given output. Utilizes same sequence as TSK ils (apart from st_block0, st_block1 and st_alloc entries), see http://www.sleuthkit.org/sleuthkit/man/ils.html
+    For the "modes" field in an inode, refer to https://man7.org/linux/man-pages/man7/inode.7.html, it has file_type and a file_mode components
+    :param image:
+    :param ubifs:
+    :param inodes:
+    :param outfd:
+    :return:
+    """
+    outfd.write(f"inum,uid,gid,mtime,atime,ctime,mode,nlink,inode_size\n")
+    for inum, inode in inodes.items():
+        uid = inode.uid
+        gid = inode.gid
+        mtime = inode.mtime_sec if not human_readable else datetime.utcfromtimestamp(inode.mtime_sec).strftime("%Y-%m-%d %H:%M:%S")
+        atime = inode.atime_sec if not human_readable else datetime.utcfromtimestamp(inode.atime_sec).strftime("%Y-%m-%d %H:%M:%S")
+        ctime = inode.ctime_sec if not human_readable else datetime.utcfromtimestamp(inode.ctime_sec).strftime("%Y-%m-%d %H:%M:%S")
+        mode = inode.mode if not human_readable else f"{InodeMode(inode.mode).file_type}|{InodeMode(inode.mode).full_perm}"
+        nlink = inode.nlink
+        size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
+
+        sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}\n")
+
+class InodeMode:
+    """
+    Wrapper class for the "mode" field in an UBIFS_INODE_NODE
+    It conforms to the POSIX standard. More about the "mode" field can be found at https://man7.org/linux/man-pages/man7/inode.7.html
+    It uses 4 bits for the file_type and 12 bits for file_permission
+
+    types:
+     1100 sock (12)
+     1010 lnk  (10)
+     1000 reg  (8)
+     0110 blk  (14)
+     0100 dir  (4)
+     0010 chr  (2)
+     0001 fifo (1)
+
+    Example: 000 000 00|0 000| 000 000 000 000
+                        type      permission
+
+    file permission is organized like this:
+    4000 suid
+    2000 sgid
+    1000 sticky bit
+
+    0007 rwx for others  -> 000 000 000 111
+    0004 r for others
+    0002 w for others
+    0001 x for others
+
+    second "column" is for group, third for owner
+    """
+    _file_types = {12: "SOCKET", 10: "LINK", 8: "FILE", 14: "BLOCK DEV", 4: "DIR", 2: "CHAR DEV", 1: "FIFO"}
+
+    def __init__(self, mode: int) -> None:
+
+        self.mode = mode
+
+    @property
+    def full_perm(self) -> str:
+        return self.owner_perm + self.grp_perm + self.other_perm
+
+    @property
+    def owner_perm(self) -> str:
+        owner_bits = self.mode>>6&7
+        suid_bit = (self.mode>>11)&1
+        r = f"{'r' if (owner_bits >> 2) & 1 else '-'}"
+        w = f"{'w' if (owner_bits >> 1) & 1 else '-'}"
+        if suid_bit:
+           x = f"s"
+        else:
+            x = f"{'x' if (owner_bits) & 1 else '-'}"
+        return r + w + x
+
+    @property
+    def grp_perm(self) -> str:
+        grp_bits = self.mode >> 3 & 7
+        sgid_bit = (self.mode >> 10) & 1
+        r = f"{'r' if (grp_bits >> 2) & 1 else '-'}"
+        w = f"{'w' if (grp_bits >> 1) & 1 else '-'}"
+        if sgid_bit:
+            x = f"s"
+        else:
+            x = f"{'x' if (grp_bits) & 1 else '-'}"
+        return r + w + x
+
+    @property
+    def other_perm(self) -> str:
+        other_bits = self.mode & 7
+        sticky_bit = (self.mode >> 9) & 1
+        r = f"{'r' if (other_bits >> 2) & 1 else '-'}"
+        w = f"{'w' if (other_bits >> 1) & 1 else '-'}"
+        if sticky_bit:
+            x = f"t"
+        else:
+            x = f"{'x' if (other_bits) & 1 else '-'}"
+        return r + w + x
+
+    @property
+    def file_type(self) -> str:
+        return InodeMode._file_types[(self.mode >> 12) & 15]
+
 def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
     """
     Writes all UBI instances of an Image to stdout in a readable format
@@ -56,16 +161,25 @@ def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
 
     outfd.write(f"UBI Instances: {len(ubi_instances)}\n\n")
 
+    outfd.write(f"Units are in {readable_size(image.block_size)}-Erase Blocks\n")
     for i, ubi in enumerate(ubi_instances):
-        outfd.write(f"UBI Instance {i}\n")
-        outfd.write(f"PEB Offset: {ubi.partition.offset // image.block_size}\n")
-        outfd.write(
-            f"Physical Erase Blocks: {len(ubi.partition.data) // image.block_size} (start:{ubi.partition.offset // image.block_size} end:{ubi.partition.end // image.block_size})\n")
-        outfd.write(f"Volumes: {len(ubi.volumes)}\n")
+        outfd.write("\tStart\t\t\tEnd\t\t\tLength\n")
+        index = zpad(i, 4)
+        start = zpad(ubi.partition.offset // image.block_size, 10)
+        end = zpad(ubi.partition.end // image.block_size, 10)
+        length = zpad(len(ubi) // image.block_size, 10)
+        outfd.write(f"{index}:\t{start}\t\t{end}\t\t{length}\n")
+
+        outfd.write(f"|\n")
+        outfd.write(f"|\tVolumes\n")
+        outfd.write("|\tIndex\t\t\tReserved PEBs\t\tType\t\t\tName\n")
         for i, vol in enumerate(ubi.volumes):
-            outfd.write(f"Volume {vol._vol_num}\n")
-            outfd.write(f"Name: {vol.name}\n")
-            render_ubi_vtbl_record(vol._vtbl_record, outfd)
+            vol_index = vol._vol_num
+            vol_reserved_pebs = vol._vtbl_record.reserved_pebs
+            vol_type = "STATIC" if vol._vtbl_record.vol_type == 2 else "DYNAMIC" if vol._vtbl_record.vol_type == 1 else "UNKNOWN"
+            vol_name = vol.name
+
+            outfd.write(f"|\t{vol_index}\t\t\t{zpad(vol_reserved_pebs, 10)}\t\t{vol_type}\t\t\t{vol_name}\n")
         outfd.write(f"\n")
 
 
