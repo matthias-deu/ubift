@@ -3,8 +3,9 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from ubift.framework.mtd import Partition, Image
+from ubift.framework.structs.structs import FDT_HEADER
 from ubift.framework.structs.ubi_structs import UBI_EC_HDR
-from ubift.framework.util import find_signature
+from ubift.framework.util import find_signature, find_signatures
 
 ubiftlog = logging.getLogger(__name__)
 
@@ -56,6 +57,27 @@ class Partitioner(ABC):
                 filled_partitions.insert(filled_partitions.index(partition)+1, between_partition)
 
         return filled_partitions
+
+class FDTPartitioner(Partitioner):
+    """
+    Partitions a raw Image by looking for a flattened device tree.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def partition(self, image: Image) -> List[Partition]:
+        if image is None:
+            ubiftlog.error(f"[-] Not a valid Image, cannot partition.")
+
+        # index = find_signatures(image.data, b'\xd0\r\xfe\xed')
+        # for num, i in enumerate(index):
+        #     hdr = FDT_HEADER(image.data, i)
+        #     with open(f"D:\\devicetree_{num}.dts", "w+b") as f:
+        #         f.write(image.data[i:i+hdr.totalsize])
+        #
+        # exit()
+
+        return []
 
 
 class UBIPartitioner(Partitioner):

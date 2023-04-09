@@ -9,7 +9,7 @@ from typing import Any, List
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
     render_data_nodes, render_inode_list
 from ubift.framework.mtd import Image
-from ubift.framework.partitioner import UBIPartitioner
+from ubift.framework.partitioner import UBIPartitioner, FDTPartitioner
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_INODE_TYPES, UBIFS_KEY, UBIFS_KEY_TYPES
 from ubift.framework.ubi import UBI
 from ubift.framework.ubifs import UBIFS
@@ -36,6 +36,7 @@ class CommandLine:
         # mtdls
         mtdls = subparsers.add_parser("mtdls", help="Lists information about all available Partitions, including UBI instances. UBI instances have the description 'UBI'.")
         mtdls.add_argument("input", help="Input flash memory dump.")
+        #mtdls.add_argument("-fdt", help="Tries to find partitions based on a flattened device tree.", default=False, action="store_true")
         mtdls.set_defaults(func=self.mtdls)
 
         # mtdcat
@@ -447,9 +448,10 @@ class CommandLine:
                             for field in ubifs.superblock.__fields__:
                                 sys.stdout.write(f"{field}: {getattr(ubifs.superblock, field)}\n")
 
-                            sys.stdout.write("\nMaster node:\n")
-                            for field in ubifs.masternodes[0].__fields__:
-                                sys.stdout.write(f"{field}: {getattr(ubifs.masternodes[0], field)}\n")
+                            sys.stdout.write(f"\nMaster nodes in LEB1: {len(ubifs.masternodes[0])}, LEB2: {len(ubifs.masternodes[1])}\n")
+                            sys.stdout.write("\n(newest) Master node in LEB1:\n")
+                            for field in ubifs.masternodes[0][0].__fields__:
+                                sys.stdout.write(f"{field}: {getattr(ubifs.masternodes[0][0], field)}\n")
 
                             return
 
@@ -457,11 +459,16 @@ class CommandLine:
         CommandLine.verbose(args)
 
         input = args.input
+        fdt = args.fdt
 
         with open(input, "rb") as f:
             data = f.read()
 
             image = self._initialize_image(data, args)
+
+            # if fdt:
+            #     image.partitions = FDTPartitioner().partition(image)
+            # else:
             image.partitions = UBIPartitioner().partition(image, fill_partitions=True)
 
             render_image(image)
