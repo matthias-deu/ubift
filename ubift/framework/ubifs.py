@@ -13,7 +13,7 @@ from ubift.framework.ubi import UBIVolume, LEB
 from ubift.framework.util import crc32, find_signature
 from ubift.logging import ubiftlog
 
-# Which master node is used (there are two identical ones)
+# From which LEB is the master node taken (0 refers to LEB 1, 1 to LEB 2)
 UBIFS_MASTERNODE_INDEX = 0
 # Size of a key in KiB
 UBIFS_KEY_SIZE = 8
@@ -31,9 +31,10 @@ class UBIFS:
         self._ubi_volume = ubi_volume
 
         self.superblock = UBIFS_SB_NODE(self.ubi_volume.lebs[0].data, 0)
-        self.masternodes = [UBIFS_MST_NODE(self.ubi_volume.lebs[1].data, 0),
-                            UBIFS_MST_NODE(self.ubi_volume.lebs[2].data, 0)]
-        self._root_idx_node = self._parse_root_idx_node(self.masternodes[UBIFS_MASTERNODE_INDEX])
+        self.masternodes = [self._parse_master_nodes(1),
+                            self._parse_master_nodes(2)]
+        self._used_masternode = self.masternodes[0][0]
+        self._root_idx_node = self._parse_root_idx_node(self.masternodes[UBIFS_MASTERNODE_INDEX][0])
 
         if not self._validate():
             raise exception.UBIFTException(f"[-] Invalid UBIFS instance for UBI volume {self._ubi_volume}")
@@ -59,6 +60,33 @@ class UBIFS:
         # node = self._find(self._root_idx_node, key)
         # print(bytearray(node.key).hex(sep=","))
         # print(node)
+
+    def _parse_master_nodes(self, leb_num: LEB) -> List[UBIFS_MST_NODE]:
+        """
+        Parses all nodes of type UBIFS_MST_NODE in a LEB. This is needed because new master nodes are successivly written, i.e., the newest is at the end.
+        :param leb_num:
+        :return: List of all found master nodes in a given LEB, sorted by sequence number (highest number first)
+        """
+        mst_nodes = []
+        leb_data = self.ubi_volume.lebs[leb_num].data
+        ch_hdr_sig = "\x31\x18\x10\x06".encode("utf-8")
+
+        index = find_signature(leb_data, ch_hdr_sig, 0)
+        while 0 <= index:
+            try:
+                ch_hdr = UBIFS_CH(leb_data, index)
+                if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_MST_NODE:
+                    mst_nodes.append(UBIFS_MST_NODE(leb_data, index))
+            except:
+                ubiftlog.warn(f"[-] Encountered error while parsing master node in LEB {leb_num}.")
+
+            index = find_signature(leb_data, ch_hdr_sig, index + 1)
+
+        mst_nodes.sort(key=lambda mst_node: mst_node.ch.sqnum, reverse=True)
+
+        ubiftlog.info(f"[+] Found {len(mst_nodes)} master nodes in LEB {leb_num}.")
+
+        return mst_nodes
 
     def _scan(self, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs) -> None:
         """
@@ -389,16 +417,15 @@ class UBIFS:
             ubiftlog.error("[-] There is no master node.")
             return False
         elif len(self.masternodes) == 1:
-            ubiftlog.warn("[-] There is only one master node (expected: 2).")
+            ubiftlog.warn("[-] There is only one list with master nodes, so one LEB could not be parsed correctly.")
         elif len(self.masternodes) == 2:
             # Add an additional 8 to their offsets to skip the '__le64 sqnum', because both masternodes have different sequence numbers.
-            if crc32(self.masternodes[0].pack()[8 + 8:]) != crc32(self.masternodes[1].pack()[8 + 8:]):
+            if crc32(self.masternodes[0][0].pack()[8 + 8:]) != crc32(self.masternodes[1][0].pack()[8 + 8:]):
                 ubiftlog.warn(
-                    "[-] Master nodes have different CRC32, this should never happen under normal circumstances. It might be possible that one master node is corrupted.")
+                    "[-] Most recent master nodes have different CRC32, this should never happen under normal circumstances. It might be possible that one master node is corrupted.")
 
-        for masternode in self.masternodes:
-            if masternode.ch.crc != crc32(masternode.pack()[8:]):
-                ubiftlog.warn("[-] Master nodes have invalid CRC32.")
+        if self._used_masternode.ch.crc != crc32(self._used_masternode.pack()[8:]):
+            ubiftlog.warn("[-] Most recent master node has invalid CRC32.")
 
         return True
 
