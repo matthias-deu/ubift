@@ -27,14 +27,20 @@ class UBIFS:
     LEB 1 and 2 -> Master node (two identical copies)
     """
 
-    def __init__(self, ubi_volume: UBIVolume):
+    def __init__(self, ubi_volume: UBIVolume, masternode_index: int = -1):
         self._ubi_volume = ubi_volume
 
         self.superblock = UBIFS_SB_NODE(self.ubi_volume.lebs[0].data, 0)
         self.masternodes = [self._parse_master_nodes(1),
                             self._parse_master_nodes(2)]
-        self._used_masternode = self.masternodes[0][0]
-        self._root_idx_node = self._parse_root_idx_node(self.masternodes[UBIFS_MASTERNODE_INDEX][0])
+
+        if masternode_index is None or masternode_index < 0:
+            masternode_index = 0
+        if masternode_index >= len(self.masternodes[0]):
+            raise exception.UBIFTException(f"[-] Invalid master node index ({masternode_index}). There are only {len(self.masternodes[0])} master nodes in UBIFS instance for UBI volume {self._ubi_volume}")
+
+        self._used_masternode = self.masternodes[0][masternode_index]
+        self._root_idx_node = self._parse_root_idx_node(self._used_masternode)
 
         if not self._validate():
             raise exception.UBIFTException(f"[-] Invalid UBIFS instance for UBI volume {self._ubi_volume}")
@@ -82,6 +88,7 @@ class UBIFS:
 
             index = find_signature(leb_data, ch_hdr_sig, index + 1)
 
+        # sort them based on sequence number
         mst_nodes.sort(key=lambda mst_node: mst_node.ch.sqnum, reverse=True)
 
         ubiftlog.info(f"[+] Found {len(mst_nodes)} master nodes in LEB {leb_num}.")
@@ -202,7 +209,7 @@ class UBIFS:
 
     def _find_range(self, node: Any, min_key: UBIFS_KEY, max_key: UBIFS_KEY, _result: List[Any] = []) -> List[Any]:
         """
-        Searched for nodes that have a key of min_key <= key < max_key
+        Searches for nodes that have a key of min_key <= key < max_key
         :param node:
         :param min_key:
         :param max_key:

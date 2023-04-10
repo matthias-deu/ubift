@@ -116,8 +116,21 @@ class CommandLine:
         for command in commands:
             self.add_default_image_args(command)
 
+        file_system_layer_commands = [fls]
+        for command in file_system_layer_commands:
+            self.add_default_ubifs_args(command)
+
         args = parser.parse_args()
         args.func(args)
+
+    def add_default_ubifs_args(self, parser: argparse.ArgumentParser) -> None:
+        """
+        Adds default arguments to Parsers for commands that work on the file system (UBIFS) layer
+        :param ubifs_parser:
+        :return:
+        """
+        parser.add_argument("--master", help="Defines the index of which master node will be used. Amount of master nodes can be identified with 'fsstat'.",
+                            type=int)
 
     def add_default_image_args(self, parser: argparse.ArgumentParser) -> None:
         """
@@ -297,6 +310,7 @@ class CommandLine:
         ubi_vol_name = args.vol_name
         use_full_paths = args.path
         do_scan = args.scan
+        master_node_index = args.master
 
         with open(input, "rb") as f:
             data = f.read()
@@ -307,7 +321,7 @@ class CommandLine:
             for ubi in ubi_instances:
                 if ubi.peb_offset == ubi_offset and ubi.get_volume(ubi_vol_name) is not None:
                     vol = ubi.get_volume(ubi_vol_name)
-                    ubifs = UBIFS(vol)
+                    ubifs = UBIFS(vol, masternode_index=master_node_index)
 
                     # Traverse B-Tree and collect all dents (inodes dont matter here but are collected too)
                     # TODO: Maybe traverse etc shouldnt be protected functions
