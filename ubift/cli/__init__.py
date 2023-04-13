@@ -9,8 +9,8 @@ from typing import Any, List
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
     render_data_nodes, render_inode_list
 from ubift.framework.mtd import Image
-from ubift.framework.partitioner import UBIPartitioner, FDTPartitioner
-from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_INODE_TYPES, UBIFS_KEY, UBIFS_KEY_TYPES
+from ubift.framework.partitioner import UBIPartitioner
+from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES
 from ubift.framework.ubi import UBI
 from ubift.framework.ubifs import UBIFS
 from ubift.logging import ubiftlog
@@ -473,16 +473,12 @@ class CommandLine:
         CommandLine.verbose(args)
 
         input = args.input
-        fdt = args.fdt
 
         with open(input, "rb") as f:
             data = f.read()
 
             image = self._initialize_image(data, args)
 
-            # if fdt:
-            #     image.partitions = FDTPartitioner().partition(image)
-            # else:
             image.partitions = UBIPartitioner().partition(image, fill_partitions=True)
 
             render_image(image)

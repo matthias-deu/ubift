@@ -2,6 +2,7 @@
 # The structs and enums etc are taken from the Linux kernel at /linux/fs/ubifs/ubifs-media.h
 
 import struct
+from enum import Enum
 from functools import total_ordering
 from typing import Any, List
 
@@ -11,6 +12,18 @@ from ubift import exception
 from ubift.framework import compression
 from ubift.framework.structs.structs import MemCStructExt, COMMON_TYPEDEFS
 from ubift.logging import ubiftlog
+
+
+class UBIFS_JOURNAL_HEADS(Enum):
+    """
+    UBIFS' journal is multiheaded. It consists of three journal heads, which are:
+    - garbage collector jhead (gc copies valid data to this journal during its cleaning process)
+    - base jhead (contains non-data nodes)
+    - data head (contains data nodes)
+    """
+    UBIFS_GC_HEAD = 0
+    UBIFS_BASE_HEAD = 1
+    UBIFS_DATA_HEAD = 2
 
 
 class UBIFS_COMPRESSION_TYPE(CEnum):
@@ -24,6 +37,7 @@ class UBIFS_COMPRESSION_TYPE(CEnum):
             UBIFS_COMPR_TYPES_CNT,
         };
     """
+
 
 class UBIFS_INODE_TYPES(CEnum):
     __size__ = 1
@@ -197,7 +211,6 @@ class UBIFS_BRANCH(MemCStructExt):
         return UBIFS_KEY(bytes(self.key)[:8]) if self.key is not None else None
 
 
-
 class UBIFS_DATA_NODE(MemCStructExt):
     def __init__(self, data: bytes, offset: int, *args, **kwargs):
         """
@@ -211,7 +224,8 @@ class UBIFS_DATA_NODE(MemCStructExt):
         compr_data_len = UBIFS_CH(data, offset).len - UBIFS_DATA_NODE.__size__
 
         if compr_data_len > 4096:
-            raise exception.UBIFTException(f"[-] More than 4096 bytes of data found in a data node, which is not possible. {compr_data_len}")
+            raise exception.UBIFTException(
+                f"[-] More than 4096 bytes of data found in a data node, which is not possible. {compr_data_len}")
 
         if compr_data_len is not None and compr_data_len > 0:
             self.set_flexible_array_length(compr_data_len)
@@ -237,9 +251,9 @@ class UBIFS_DATA_NODE(MemCStructExt):
         else:
             self.decompr_data = compression.decompress(bytes(self.data), self.compr_type, self.data_size)
             if len(self.decompr_data) != self.data_size:
-                ubiftlog.warn(f"[-] Data node decompressed data does not equal its data size {self.decompr_data} -> {self.data_size}")
+                ubiftlog.warn(
+                    f"[-] Data node decompressed data does not equal its data size {self.decompr_data} -> {self.data_size}")
             return self.decompr_data
-
 
 
 class UBIFS_IDX_NODE(MemCStructExt):
@@ -451,5 +465,4 @@ def parse_arbitrary_node(data: bytes, offset: int) -> Any:
         node = cls(data, offset)
         return node
     except:
-        ubiftlog.warn(f"[!] Could not parse arbitrary node, it might be corrupted. ({ch_hdr})")
         return None

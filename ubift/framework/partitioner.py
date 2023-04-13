@@ -58,27 +58,6 @@ class Partitioner(ABC):
 
         return filled_partitions
 
-class FDTPartitioner(Partitioner):
-    """
-    Partitions a raw Image by looking for a flattened device tree.
-    """
-    def __init__(self):
-        super().__init__()
-
-    def partition(self, image: Image) -> List[Partition]:
-        if image is None:
-            ubiftlog.error(f"[-] Not a valid Image, cannot partition.")
-
-        # index = find_signatures(image.data, b'\xd0\r\xfe\xed')
-        # for num, i in enumerate(index):
-        #     hdr = FDT_HEADER(image.data, i)
-        #     with open(f"D:\\devicetree_{num}.dts", "w+b") as f:
-        #         f.write(image.data[i:i+hdr.totalsize])
-        #
-        # exit()
-
-        return []
-
 
 class UBIPartitioner(Partitioner):
     """

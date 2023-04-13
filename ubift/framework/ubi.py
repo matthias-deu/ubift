@@ -28,6 +28,9 @@ class UBIVolume:
     def lebs(self):
         return self._lebs
 
+    def __str__(self):
+        return f"UBI Volume {self.name} ({self._vol_num}). LEBs: {len(self._lebs)}"
+
 
 class UBI:
     """

@@ -1,22 +1,118 @@
+from __future__ import annotations
+
 import struct
 import uuid
+from enum import Enum
 from typing import List, Callable, Any
 
 import lzo
 
 from ubift import exception
 from ubift.framework import compression
+from ubift.framework.structs.ubi_structs import UBI_EC_HDR
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_MST_NODE, UBIFS_NODE_TYPES, UBIFS_CH, \
     UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, \
-    UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node, UBIFS_KEY_TYPES, UBIFS_DATA_NODE
+    UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node, UBIFS_KEY_TYPES, UBIFS_DATA_NODE, \
+    UBIFS_JOURNAL_HEADS
 from ubift.framework.ubi import UBIVolume, LEB
 from ubift.framework.util import crc32, find_signature
 from ubift.logging import ubiftlog
 
-# From which LEB is the master node taken (0 refers to LEB 1, 1 to LEB 2)
-UBIFS_MASTERNODE_INDEX = 0
 # Size of a key in KiB
 UBIFS_KEY_SIZE = 8
+
+
+class Journal:
+    """
+    Represents an UBIFS journal which includes:
+
+    Information, i.e., journal heads found in the corresponding log LEB (saved in self._jheads and self._cs_node)
+    Information, i.e., nodes found in the buds (saved in self._buds)
+    """
+
+    def __init__(self, ubifs: UBIFS, log_leb: int):
+        self._ubifs = ubifs
+        self._buds = {}
+        self._cs_node, self._jheads = self._parse_log(log_leb)
+        for head in self._jheads.keys():
+            self._buds[head] = self._parse_bud(head)
+
+        # if self._cs_node.cmt_no == self._ubifs._used_masternode.cmt_no:
+        #     ubiftlog.info(f"[!] Masternode commit number matches that of cs node of Journal.")
+        # else:
+        #     ubiftlog.info(f"[+] Masternode commit number DOES NOT match that of cs node of Journal.")
+
+    @property
+    def ref_nodes(self):
+        return self._jheads.values()
+
+    @property
+    def buds(self) -> dict[UBIFS_JOURNAL_HEADS, list]:
+        return self._buds
+
+    @property
+    def cs_node(self):
+        return self._cs_node
+
+    def _parse_bud(self, jhead: int) -> list:
+        """
+        Parses a bud given by its head number
+        :param jhead:
+        :return: List of nodes contained in the bud
+        """
+        ubiftlog.info(f"[!] Parsing bud {UBIFS_JOURNAL_HEADS(jhead)}")
+
+        ref_node = self._jheads[jhead]
+        leb = self._ubifs.ubi_volume.lebs[ref_node.lnum]
+        leb_offs = ref_node.offs
+
+        bud = []
+
+        node = parse_arbitrary_node(leb.data, leb_offs)
+        while node != None and node.ch.validate_magic():
+            bud.append(node)
+            leb_offs += type(node).size
+
+        if len(bud) == 0:
+            ubiftlog.info(f"[!] Empty bud {UBIFS_JOURNAL_HEADS(jhead)}")
+        else:
+            ubiftlog.info(f"[!] Bud {UBIFS_JOURNAL_HEADS(jhead)} has {len(bud)} nodes")
+
+        return bud
+
+    def _parse_log(self, log_leb: int) -> tuple[UBIFS_CS_NODE, list[UBIFS_REF_NODE]]:
+        """
+        Parses a specific log LEB
+        :param log_leb: Specific LEB of the log
+        :return: Returns a tuple of (UBIFS_CS_NODE, LIST[UBIFS_REF_NODE])
+        """
+        ubiftlog.info(f"[!] Trying to parse Journal with log LEB {log_leb}")
+
+        leb = self._ubifs.ubi_volume.lebs[log_leb]
+        leb_offs = 0
+
+        cs_node = None
+        jheads = {}
+
+        node = parse_arbitrary_node(leb.data, leb_offs)
+        while node != None and node.ch.validate_magic():
+            if isinstance(node, UBIFS_PAD_NODE):
+                leb_offs += UBIFS_PAD_NODE.size + node.pad_len
+            elif isinstance(node, UBIFS_CS_NODE):
+                ubiftlog.info(f"[+] Found commit start node with commit number: {node.cmt_no}")
+                cs_node = node
+                leb_offs += UBIFS_CS_NODE.size
+            elif isinstance(node, UBIFS_REF_NODE):
+                ubiftlog.info(
+                    f"[+] Found reference node which has journal head num: {node.jhead} ({UBIFS_JOURNAL_HEADS(node.jhead).name})")
+                jheads[node.jhead] = node
+                leb_offs += UBIFS_REF_NODE.size
+            else:
+                ubiftlog.error(f"[-] Encountered unknown node in log LEB {log_leb}")
+
+            node = parse_arbitrary_node(leb.data, leb_offs)
+
+        return cs_node, jheads
 
 
 class UBIFS:
@@ -37,17 +133,20 @@ class UBIFS:
         if masternode_index is None or masternode_index < 0:
             masternode_index = 0
         if masternode_index >= len(self.masternodes[0]):
-            raise exception.UBIFTException(f"[-] Invalid master node index ({masternode_index}). There are only {len(self.masternodes[0])} master nodes in UBIFS instance for UBI volume {self._ubi_volume}")
+            raise exception.UBIFTException(
+                f"[-] Invalid master node index ({masternode_index}). There are only {len(self.masternodes[0])} master nodes in UBIFS instance for UBI volume {self._ubi_volume}")
 
         self._used_masternode = self.masternodes[0][masternode_index]
         self._root_idx_node = self._parse_root_idx_node(self._used_masternode)
 
+        self.journal = Journal(self, self._used_masternode.log_lnum)
+
         if not self._validate():
-            raise exception.UBIFTException(f"[-] Invalid UBIFS instance for UBI volume {self._ubi_volume}")
+            raise exception.UBIFTException(f"[-] Invalid UBIFS instance for {self._ubi_volume}")
 
-        ubiftlog.info(f"[!] Initialized UBIFS instance for UBI volume {self._ubi_volume}")
+        ubiftlog.info(f"[!] Initialized UBIFS instance for {self._ubi_volume}")
 
-        # self._parse_journal(self.masternodes[UBIFS_MASTERNODE_INDEX])
+        # self._scan_lebs(self._test_visitor)
 
         # self._traverse(self._root_idx_node, self._test_visitor)
 
@@ -95,9 +194,58 @@ class UBIFS:
 
         return mst_nodes
 
+    def _scan_lebs(self, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs) -> None:
+        """
+        Scans the UBI instance for UBIFS_CH signatures. It will only consider LEBs that belong to the UBI Volume of this UBIFS instance.
+        :param traversal_function: Function that will be called for every found signature
+        :param kwargs:
+        :return:
+        """
+        ubi = self._ubi_volume.ubi
+        partition = self._ubi_volume.ubi.partition
+
+        start_offset = ubi.partition.offset
+        stop_offset = ubi.partition.end
+
+        index = find_signature(partition.image.data, UBI_EC_HDR.__magic__, start_offset)
+        while 0 <= index < stop_offset:
+            try:
+                rel = index - ubi.partition.offset
+                leb = LEB(ubi, rel // partition.image.block_size)
+
+                if leb.vid_hdr.vol_id == self._ubi_volume._vol_num:
+                    self._scan_leb(leb, traversal_function, **kwargs)
+            except Exception as e:
+                pass
+
+            index = find_signature(partition.image.data, UBI_EC_HDR.__magic__, index + 1)
+
+    def _scan_leb(self, leb: LEB, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs):
+        """
+        Scans a LEB for arbitrary nodes and calls traversal_function for every found node
+        :param leb:
+        :param traversal_function:
+        :param kwargs:
+        :return:
+        """
+        start_offset = 0
+        stop_offset = len(leb.data) - 1
+
+        index = find_signature(leb.data, "\x31\x18\x10\x06".encode("utf-8"), start_offset)
+        while 0 <= index < stop_offset:
+            try:
+                ch_hdr = UBIFS_CH(leb.data, index)
+                traversal_function(ch_hdr, leb.leb_num, index, **kwargs)
+            except Exception as e:
+                ubiftlog.warn(f"[-] Possibly invalid UBIFS_CH at LEB {leb} offset {index} ({e}).")
+
+            index = find_signature(leb.data, "\x31\x18\x10\x06".encode("utf-8"), index + 1)
+
     def _scan(self, traversal_function: Callable[[UBIFS_CH, int, int, ...], None], **kwargs) -> None:
         """
         Scans the UBI instance for UBIFS_CH signatures. This will naturally find a lot more than using _traverse, for instance nodes that are obsolete.
+        This method does not care to which volume the LEB of the node belongs to, it might belong to some completly other volume.
+        If volume should be considered, use _scan_lebs
         :param traversal_function: Function that will be called for every found signature
         :param kwargs:
         :return:
@@ -105,9 +253,8 @@ class UBIFS:
         ubi = self._ubi_volume.ubi
         partition = self._ubi_volume.ubi.partition
         if len(ubi.volumes) > 1:
-            # TODO: maybe this is not true because they have not been erased, so compare their vid_hdr with ubi volume index
             ubiftlog.warn(
-                "[-] The UBI instance has more than one volume, therefore it wont be clear to which volume the parsed nodes belong to. LEB information cannot be used because it cannot be assured that a vid header is written to the LEB (only EC).")
+                "[-] The UBI instance has more than one volume, therefore it wont be clear to which volume the parsed nodes belong to. Consider using _scan_lebs")
 
         start_offset = ubi.partition.offset
         stop_offset = ubi.partition.end
@@ -118,9 +265,11 @@ class UBIFS:
                 ch_hdr = UBIFS_CH(partition.image.data, index)
                 peb = index // partition.image.block_size
                 peb_offset = index - (peb * partition.image.block_size)
+
                 traversal_function(ch_hdr, peb, peb_offset,
                                    **kwargs)  # Traversal function is called with PEB num and offset
-            except:
+            except Exception as e:
+                print(e)
                 ubiftlog.warn(f"[-] Possibly invalid UBIFS_CH at PEB {peb} offset {peb_offset}.")
 
             index = find_signature(partition.image.data, "\x31\x18\x10\x06".encode("utf-8"), index + 1)
@@ -155,44 +304,6 @@ class UBIFS:
                 return self._unroll_path(dents[parent_inum], dents) + "/" + cur
             else:
                 return cur
-
-    def _parse_journal(self, masternode: UBIFS_MST_NODE):
-        # WiP
-        print(masternode)
-        log_lnum = masternode.log_lnum
-        cur_offs = 0
-
-        for log_lnum in range(0, 150):
-            try:
-                index = find_signature(self.ubi_volume.lebs[log_lnum].data, "\x31\x18\x10\x06".encode("utf-8"))
-                while index >= 0:
-                    index = find_signature(self.ubi_volume.lebs[log_lnum].data, "\x31\x18\x10\x06".encode("utf-8"),
-                                           index + 1)
-                    if UBIFS_CH(self.ubi_volume.lebs[log_lnum].data,
-                                index).node_type == UBIFS_NODE_TYPES.UBIFS_REF_NODE:
-                        print("ref at :" + str(index))
-            except:
-                pass
-        exit()
-
-        ch_hdr = UBIFS_CH(self.ubi_volume.lebs[log_lnum].data, cur_offs)
-        print(ch_hdr)
-        while ch_hdr.validate_magic():
-            if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_PAD_NODE:
-                pad_node = UBIFS_PAD_NODE(self.ubi_volume.lebs[log_lnum].data, cur_offs)
-                cur_offs += UBIFS_PAD_NODE.size + pad_node.pad_len
-            elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_CS_NODE:
-                cur_offs += UBIFS_CS_NODE.size
-            elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_REF_NODE:
-                ref_node = UBIFS_REF_NODE(self.ubi_volume.lebs[log_lnum].data, cur_offs)
-                print(ref_node)
-                cur_offs += UBIFS_REF_NODE.size
-            else:
-                print(f"Unknown node type {ch_hdr.node_type}")
-                cur_offs += UBIFS_CH.size
-
-            ch_hdr = UBIFS_CH(self.ubi_volume.lebs[log_lnum].data, cur_offs)
-            # print(ch_hdr)
 
     def _parse_root_idx_node(self, masternode: UBIFS_MST_NODE) -> UBIFS_IDX_NODE:
         """
@@ -352,19 +463,25 @@ class UBIFS:
             key = UBIFS_KEY(bytes(inode_node.key[:8]))
             inodes[key.inode_num] = inode_node
 
-    def _test_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, list=[], **kwargs) -> None:
+    def _test_visitor(self, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, **kwargs) -> None:
         if not ch_hdr.validate_magic():
             return
 
-        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DATA_NODE:
-            target_node = UBIFS_DATA_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
-            key = UBIFS_KEY(bytes(target_node.key[:8]))
-            if key.inode_num == 2864:
-                list.append(target_node)
+        if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_CS_NODE:
+            print(f"cs node at {leb_num} {leb_offs}")
+        elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_REF_NODE:
+            print(f"ref node at {leb_num} {leb_offs}")
+
         # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
         #     target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
-        #     print(f"{UBIFS_KEY(bytes(target_node.key)[:8])} -> {target_node.key}")
-        #     print(target_node)
+        #     inum = UBIFS_KEY(bytes(target_node.key)[:8]).inode_num
+        #     if inum <= 0:
+        #         print("ja")
+        #
+        # elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        #     target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+        #     if target_node.inum <= 0:
+        #         print(f"ja dent ({target_node.formatted_name()})")
 
     def _create_idx_node(self, branch: UBIFS_BRANCH) -> UBIFS_IDX_NODE:
         """
@@ -386,29 +503,6 @@ class UBIFS:
             return target_node
         else:
             return None
-
-    # DEPRECATED
-    # Branches are directly parsed in ubifs_struct.py in UBIFS_IDX_NODE
-    # def _parse_branches(self, branch_cnt: int, leb: LEB, offset: int) -> List[UBIFS_BRANCH]:
-    #     """
-    #     This function parses and creates UBIFS_BRANCH instances that are a flexible member of a UBIFS_IDX_NODE.
-    #     :param branch_cnt: How many braches there are. This is defined in an instance of UBIFS_IDX_NODE.child_cnt
-    #     :param leb: LEB that contains the UBIFS_IDX_NODE
-    #     :param offset: Offset where the branches start
-    #     :return: List of UBIFS_BRANCH instances
-    #     """
-    #     branches: List[UBIFS_BRANCH] = []
-    #     cur = offset
-    #     for off in range(branch_cnt):
-    #         branch = UBIFS_BRANCH(leb.data, cur)
-    #         cur += UBIFS_BRANCH.size
-    #
-    #         branch.key = leb.data[cur:cur + UBIFS_KEY_SIZE]
-    #         cur += UBIFS_KEY_SIZE
-    #
-    #         branches.append(branch)
-    #
-    #     return branches
 
     def _validate(self) -> bool:
         """
