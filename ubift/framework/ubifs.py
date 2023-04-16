@@ -14,7 +14,7 @@ from ubift.framework.structs.ubi_structs import UBI_EC_HDR
 from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_MST_NODE, UBIFS_NODE_TYPES, UBIFS_CH, \
     UBIFS_IDX_NODE, UBIFS_BRANCH, UBIFS_KEY, UBIFS_DENT_NODE, UBIFS_INO_NODE, UBIFS_INODE_TYPES, \
     UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node, UBIFS_KEY_TYPES, UBIFS_DATA_NODE, \
-    UBIFS_JOURNAL_HEADS
+    UBIFS_JOURNAL_HEADS, UBIFS_ORPH_NODE
 from ubift.framework.ubi import UBIVolume, LEB
 from ubift.framework.util import crc32, find_signature
 from ubift.logging import ubiftlog
@@ -137,6 +137,7 @@ class UBIFS:
         self.masternodes = self._parse_master_nodes()
         self._used_masternode = self.masternodes[0][self.masternode_index]
         self._root_idx_node = self._parse_root_idx_node(self._used_masternode)
+        self.orphan_nodes = self._parse_orphan_nodes()
 
         ubiftlog.info(
             f"[!] Using masternode seqnum: {self._used_masternode.ch.sqnum}, log LEB: {self._used_masternode.log_lnum}")
@@ -167,6 +168,31 @@ class UBIFS:
         # node = self._find(self._root_idx_node, key)
         # print(bytearray(node.key).hex(sep=","))
         # print(node)
+
+    def _parse_orphan_nodes(self) -> list[UBIFS_ORPH_NODE]:
+        """
+        Checks if there are any orphan nodes.
+        :return: Returns a list of all found orphan nodes.
+        """
+        orphan_area_size = self.superblock.orph_lebs
+        orphan_area = 1 + 2 + self.superblock.log_lebs + self.superblock.lpt_lebs
+
+        orphan_nodes = []
+        for i in range(orphan_area_size):
+            if orphan_area + i not in self._ubi_volume.lebs:
+                continue
+            orphan_node = parse_arbitrary_node(self._ubi_volume.lebs[orphan_area + i].data, 0)
+            if orphan_node is not None and isinstance(orphan_node, UBIFS_ORPH_NODE):
+                orphan_nodes.append(orphan_node)
+
+        if len(orphan_nodes) == 0:
+            ubiftlog.info(f"[!] Found no orphan nodes.")
+        else:
+            ubiftlog.info(f"[+] Found {len(orphan_nodes)} orphan nodes.")
+            for orph_node in orphan_nodes:
+                ubiftlog.info(f"[+] Orphan inums: {orph_node.orphans}")
+
+        return orphan_nodes
 
     def _parse_master_nodes(self) -> list[list[UBIFS_MST_NODE], list[UBIFS_MST_NODE]]:
         """

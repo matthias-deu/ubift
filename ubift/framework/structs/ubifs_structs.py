@@ -363,6 +363,58 @@ class UBIFS_MST_NODE(MemCStructExt):
     """
 
 
+class UBIFS_ORPH_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_orph_node {
+            struct UBIFS_CH ch;
+            __le64 cmt_no;
+            __le64 inos[];
+        };
+    """
+
+    @property
+    def orphans(self) -> list[int]:
+        """
+        :return: Returns the inode numbers that this orphan node references in its flexibel inos[] array
+        """
+        orphans = (self.ch.len - UBIFS_CH.__size__ - 8) // 8
+        self.set_flexible_array_length(orphans)
+        if len(self.inos) == 1 and self.inos[0] == 0:
+            return []
+        else:
+            return self.inos
+
+    @property
+    def is_last_node_of_commit(self):
+        """
+        If the top bit is set, it means that it is the last node of the commit
+        :return:
+        """
+        return self.cmt_no >> 63
+
+    @property
+    def real_cmt_no(self):
+        """
+        Sets top bit to 0 and returns the cmt_no
+        :return:
+        """
+        return self.cmt_no & 0x7FFFFFFFFFFFFFFF
+
+
+class UBIFS_TRUN_NODE(MemCStructExt):
+    __byte_order__ = LITTLE_ENDIAN
+    __def__ = COMMON_TYPEDEFS + """
+        struct ubifs_trun_node {
+            struct UBIFS_CH ch;
+            __le32 inum;
+            __u8 padding[12];
+            __le64 old_size;
+            __le64 new_size;
+        };
+    """
+
+
 class UBIFS_INO_NODE(MemCStructExt):
     __byte_order__ = LITTLE_ENDIAN
     __def__ = COMMON_TYPEDEFS + """
@@ -439,14 +491,14 @@ node_mapping = {
     UBIFS_NODE_TYPES.UBIFS_DATA_NODE: UBIFS_DATA_NODE,
     UBIFS_NODE_TYPES.UBIFS_DENT_NODE: UBIFS_DENT_NODE,
     # UBIFS_NODE_TYPES.UBIFS.XENT_NODE:
-    # UBIFS_NODE_TYPES.UBIFS_TRUN_NODE:
+    UBIFS_NODE_TYPES.UBIFS_TRUN_NODE: UBIFS_TRUN_NODE,
     UBIFS_NODE_TYPES.UBIFS_PAD_NODE: UBIFS_PAD_NODE,
     UBIFS_NODE_TYPES.UBIFS_SB_NODE: UBIFS_SB_NODE,
     UBIFS_NODE_TYPES.UBIFS_MST_NODE: UBIFS_MST_NODE,
     UBIFS_NODE_TYPES.UBIFS_REF_NODE: UBIFS_REF_NODE,
     UBIFS_NODE_TYPES.UBIFS_IDX_NODE: UBIFS_IDX_NODE,
     UBIFS_NODE_TYPES.UBIFS_CS_NODE: UBIFS_CS_NODE,
-    # UBIFS_NODE_TYPES.UBIFS_UBIFS_ORPH_NODE:
+    UBIFS_NODE_TYPES.UBIFS_ORPH_NODE: UBIFS_ORPH_NODE
     # UBIFS_NODE_TYPES.UBIFS_AUTH_NODE:
     # UBIFS_NODE_TYPES.UBIFS_SIG_NODE:
 }
