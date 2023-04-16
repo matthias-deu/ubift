@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import tempfile
 from datetime import datetime
@@ -58,14 +59,18 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
     for inum, inode in inodes.items():
         uid = inode.uid
         gid = inode.gid
-        mtime = inode.mtime_sec if not human_readable else datetime.utcfromtimestamp(inode.mtime_sec).strftime("%Y-%m-%d %H:%M:%S")
-        atime = inode.atime_sec if not human_readable else datetime.utcfromtimestamp(inode.atime_sec).strftime("%Y-%m-%d %H:%M:%S")
-        ctime = inode.ctime_sec if not human_readable else datetime.utcfromtimestamp(inode.ctime_sec).strftime("%Y-%m-%d %H:%M:%S")
+        mtime = inode.mtime_sec if not human_readable else datetime.utcfromtimestamp(inode.mtime_sec).strftime(
+            "%Y-%m-%d %H:%M:%S")
+        atime = inode.atime_sec if not human_readable else datetime.utcfromtimestamp(inode.atime_sec).strftime(
+            "%Y-%m-%d %H:%M:%S")
+        ctime = inode.ctime_sec if not human_readable else datetime.utcfromtimestamp(inode.ctime_sec).strftime(
+            "%Y-%m-%d %H:%M:%S")
         mode = inode.mode if not human_readable else f"{InodeMode(inode.mode).file_type}|{InodeMode(inode.mode).full_perm}"
         nlink = inode.nlink
         size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
 
         sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}\n")
+
 
 class InodeMode:
     """
@@ -113,7 +118,7 @@ class InodeMode:
         r = f"{'r' if (owner_bits >> 2) & 1 else '-'}"
         w = f"{'w' if (owner_bits >> 1) & 1 else '-'}"
         if suid_bit:
-           x = f"s"
+            x = f"s"
         else:
             x = f"{'x' if (owner_bits) & 1 else '-'}"
         return r + w + x
@@ -145,6 +150,7 @@ class InodeMode:
     @property
     def file_type(self) -> str:
         return InodeMode._file_types[(self.mode >> 12) & 15]
+
 
 def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
     """
@@ -200,6 +206,44 @@ def render_lebs(vol: UBIVolume, outfd=sys.stdout):
         outfd.write(f"{zpad(leb.leb_num, 5)}\t--->\t{zpad(leb._peb_num, 5)}\n")
 
 
+def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_path: str) -> None:
+    """
+    Writes data_nodes to a file. Works like 'render_data_nodes' but writes data content to a given path
+    :param inode:
+    :param data_nodes:
+    :param abs_path:
+    :return:
+    """
+
+    if os.path.exists(abs_path):
+        ubiftlog.error(f"[-] Cannot create file because it already exists: {abs_path}.")
+        return
+
+    with open(abs_path, mode="w+b") as f:
+        accu_size = 0  # accumulated size of uncompressed data from data nodes
+        for data_node in data_nodes:
+            data_node_key = UBIFS_KEY.from_bytearray(data_node.key)
+            block = data_node_key.payload
+
+            f.seek(4096 * block)
+            f.write(data_node.decompressed_data)
+
+            accu_size += len(data_node.decompressed_data)
+
+        if inode.ino_size > accu_size:
+            ubiftlog.warning(
+                f"[!] Size from inode field {inode.ino_size} is more than written bytes {accu_size}. Filling bytes with zeroes.")
+            f.seek(inode.ino_size)
+            f.truncate(inode.ino_size)
+        elif accu_size > inode.ino_size:
+            ubiftlog.error(
+                f"[-] More data has been written ({accu_size}) than what should have written indicated by inode size {inode.ino_size}.")
+
+        f.close()
+
+        return
+
+
 def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_NODE], outfd=sys.stdout) -> None:
     """
     Outputs the content of given data nodes. Also does some validation checks, e.g., checks if size of uncompressed
@@ -215,7 +259,7 @@ def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_
         ubiftlog.error(f"[-] No data nodes for inode number {inode_num} could not be found.")
         return
     else:
-        with tempfile.TemporaryFile(mode='w+b') as temp_file:
+        with tempfile.TemporaryFile(mode="w+b") as temp_file:
             accu_size = 0  # accumulated size of uncompressed data from data nodes
             for data_node in data_nodes:
                 data_node_key = UBIFS_KEY.from_bytearray(data_node.key)
@@ -230,7 +274,7 @@ def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_
             inode_node = ubifs._find(ubifs._root_idx_node,
                                      UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0))
             if inode_node.ino_size > accu_size:
-                ubiftlog.error(
+                ubiftlog.warning(
                     f"[!] Size from inode field {inode_node.ino_size} is more than written bytes {accu_size}. Filling bytes with zeroes.")
                 temp_file.seek(inode_node.ino_size)
                 temp_file.truncate(inode_node.ino_size)

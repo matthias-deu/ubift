@@ -1,0 +1,74 @@
+from ubift.framework.structs.ubifs_structs import UBIFS_CH, UBIFS_NODE_TYPES, UBIFS_DENT_NODE, UBIFS_INO_NODE, \
+    UBIFS_KEY, UBIFS_DATA_NODE
+from ubift.framework.ubifs import UBIFS
+
+
+def _dent_scan_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: int, dents: list[UBIFS_DENT_NODE],
+                       **kwargs) -> None:
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        block_size = ubifs.ubi_volume.ubi.partition.image.block_size
+        dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.ubi.partition.image.data, peb_num * block_size + peb_offs)
+        dents.append(dent_node)
+
+
+def _inode_dent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
+                                  dents: dict,
+                                  **kwargs) -> None:
+    """
+    A Visitor that collects all nodes of types UBIFS_DENT_NODE and UBIFS_INO_NODE and stores them in the dicts 'inodes' and 'dents'
+    :param ch_hdr: Will be provided by _traverse-function
+    :param leb_num: Will be provided by _traverse-function
+    :param leb_offs: Will be provided by _traverse-function
+    :param inodes: Collected nodes of type UBIFS_INO_NODE
+    :param dents: Collected nodes of type UBIFS_DENT_NODE
+    :param kwargs:
+    :return:
+    """
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        dents[dent_node.inum] = dent_node
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+        inode_node = UBIFS_INO_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        key = UBIFS_KEY(bytes(inode_node.key[:8]))
+        inodes[key.inode_num] = inode_node
+
+
+def _inode_dent_data_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
+                                       dents: dict, data: dict, **kwargs) -> None:
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        dents[dent_node.inum] = dent_node
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+        inode_node = UBIFS_INO_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        key = UBIFS_KEY(bytes(inode_node.key[:8]))
+        inodes[key.inode_num] = inode_node
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DATA_NODE:
+        data_node = UBIFS_DATA_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        key = UBIFS_KEY(bytes(data_node.key[:8]))
+        if key.inode_num not in data:
+            data[key.inode_num] = [data_node]
+        else:
+            data[key.inode_num].append(data_node)
+
+
+def _test_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, **kwargs) -> None:
+    if not ch_hdr.validate_magic():
+        return
+
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_CS_NODE:
+        print(f"cs node at {leb_num} {leb_offs}")
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_REF_NODE:
+        print(f"ref node at {leb_num} {leb_offs}")
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_TRUN_NODE:
+        print(f"truncation node at {leb_num} {leb_offs}")
+
+    # if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+    #     target_node = UBIFS_INO_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+    #     inum = UBIFS_KEY(bytes(target_node.key)[:8]).inode_num
+    #     if inum <= 0:
+    #         print("ja")
+    #
+    # elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+    #     target_node = UBIFS_DENT_NODE(self.ubi_volume.lebs[leb_num].data, leb_offs)
+    #     if target_node.inum <= 0:
+    #         print(f"ja dent ({target_node.formatted_name()})")

@@ -10,6 +10,11 @@ from ubift.logging import ubiftlog
 
 
 class UBIVolume:
+    """
+    Represents an UBI volume within an UBI instance.
+    Note: All PEBs that are mapped by LEBs are relative to the UBI instance, e.g., LEB x mapped to PEB 0
+     does not refer to the PEB which is at the start of the image dump but at the start of the UBI instance
+    """
     def __init__(self, ubi: UBI, vol_num: int, lebs: List[LEB], vtbl_record: UBI_VTBL_RECORD):
         self._ubi = ubi
         self._vol_num = vol_num
@@ -34,7 +39,7 @@ class UBIVolume:
 
 class UBI:
     """
-    Represents an UBI instance which can have zero or more UBIVolumes.
+    Represents an UBI instance which can have multiple UBIVolumes.
     The 'offset' and 'end'-fields are relative to the Partition.
     """
 

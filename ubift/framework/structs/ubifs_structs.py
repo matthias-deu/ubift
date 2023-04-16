@@ -425,7 +425,7 @@ class UBIFS_DENT_NODE(MemCStructExt):
 
     def formatted_name(self) -> str:
         """
-        Prints the name of the Volume by concatenating the hex values and decoding them
+        Prints the name of the directory entry by concatenating the hex values and decoding them
         @return:
         """
         formatted_name = [f"{x:x}" for x in list(self.name)]

@@ -3,14 +3,14 @@ import errno
 import logging
 import os
 import sys
-import tempfile
 from typing import Any, List
 
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
-    render_data_nodes, render_inode_list
+    render_data_nodes, render_inode_list, write_to_file
+from ubift.framework import visitor
 from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
-from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES
+from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES, UBIFS_INODE_TYPES
 from ubift.framework.ubi import UBI
 from ubift.framework.ubifs import UBIFS
 from ubift.logging import ubiftlog
@@ -36,7 +36,6 @@ class CommandLine:
         # mtdls
         mtdls = subparsers.add_parser("mtdls", help="Lists information about all available Partitions, including UBI instances. UBI instances have the description 'UBI'.")
         mtdls.add_argument("input", help="Input flash memory dump.")
-        #mtdls.add_argument("-fdt", help="Tries to find partitions based on a flattened device tree.", default=False, action="store_true")
         mtdls.set_defaults(func=self.mtdls)
 
         # mtdcat
@@ -111,8 +110,15 @@ class CommandLine:
         ils.add_argument("vol_name", help="Name of the UBI volume that contains the UBIFS instance.", type=str)
         ils.set_defaults(func=self.ils)
 
+        # ubift_recover
+        # This command is used by the Autopsy plugin
+        ubift_recover = subparsers.add_parser("ubift_recover", help="Extracts all files found in UBIFS instances. Creates one directory for each UBI volume with UBIFS.")
+        ubift_recover.add_argument("input", help="Input flash memory dump.")
+        ubift_recover.add_argument("-o", "--output", help="Output directory where all files and directories will be dumped to.", type=str)
+        ubift_recover.set_defaults(func=self.ubift_recover)
+
         # Adds default arguments such as --blocksize to all previously defined commands
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat]
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat, ubift_recover]
         for command in commands:
             self.add_default_image_args(command)
 
@@ -186,6 +192,78 @@ class CommandLine:
             logging.disable(logging.INFO)
             logging.disable(logging.WARN)
 
+    def ubift_recover(self, args) -> None:
+        """
+        Recovers all files of all found UBIFS instances.
+        :param args:
+        :return:
+        """
+        CommandLine.verbose(args)
+
+        input = args.input
+        output_dir = args.output
+
+        if output_dir is None or not os.path.exists(output_dir) or not os.path.isdir(output_dir):
+            rootlog.error(f"[-] Folder {output_dir} not specified or does not exist.")
+            return
+        else:
+            rootlog.info(f"[!] Extracting all files to {output_dir}")
+
+        with open(input, "rb") as f:
+            data = f.read()
+
+            image = self._initialize_image(data, args)
+            ubi_instances = self._initialize_ubi_instances(image, True)
+
+            for i,ubi in enumerate(ubi_instances):
+                ubi_dir = os.path.join(output_dir, f"ubi_{i}")
+                rootlog.info(f"[+] Creating directory {ubi_dir}")
+                os.mkdir(os.path.join(output_dir, ubi_dir))
+
+                for j, ubi_vol in enumerate(ubi.volumes):
+
+                    ubifs = UBIFS(ubi_vol)
+                    if ubifs is None:
+                        continue
+
+                    ubi_vol_name = ubi_vol.name if len(ubi_vol.name) <= 10 else ubi_vol.name[:10]
+                    ubi_vol_dir = os.path.join(ubi_dir, f"ubi_{i}_{j}_{ubi_vol_name}")
+                    os.mkdir(os.path.join(output_dir, ubi_dir))
+                    rootlog.info(f"[+] Creating directory {ubi_vol_dir}")
+
+                    inodes = {}
+                    dents = {}
+                    data = {}
+                    ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_data_collector_visitor, inodes=inodes,
+                                    dents=dents, data=data)
+                    for dent in dents.values():
+                        if UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_DIR:
+                            full_dir = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
+                            rootlog.info(f"[+] Creating directory {full_dir}")
+                            os.makedirs(full_dir, exist_ok=True)
+                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_REG:
+                            inode_num = dent.inum
+                            full_filepath = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
+                            os.makedirs(os.path.dirname(full_filepath), exist_ok=True)
+                            if inode_num not in inodes or inode_num not in data or len(data[inode_num]) == 0:
+                                rootlog.warning(f"[-] Cannot create file because cannot find its inode ({inode_num not in inodes}) or it has no data nodes ({inode_num not in data}): {full_filepath}")
+                                continue
+                            write_to_file(inodes[inode_num], data[inode_num], full_filepath)
+                            rootlog.info(f"[+] Creating file {full_filepath}")
+                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_LNK:
+                            rootlog.warning(f"[!] Encountered type LNK (will be skipped): {dent.formatted_name()}")
+                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_BLK:
+                            rootlog.warning(f"[!] Encountered type BLK (will be skipped): {dent.formatted_name()}")
+                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_CHR:
+                            rootlog.warning(f"[!] Encountered type CHR (will be skipped): {dent.formatted_name()}")
+                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_FIFO:
+                            rootlog.warning(f"[!] Encountered type FIFO (will be skipped): {dent.formatted_name()}")
+                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_SOCK:
+                            rootlog.warning(f"[!] Encountered type SOCK (will be skipped): {dent.formatted_name()}")
+                        else:
+                            rootlog.warning(f"[!] Encountered unknown type (will be skipped): {dent.formatted_name()}")
+
+
     def istat(self, args) -> None:
         """
         Displays information about a specific inode.
@@ -248,7 +326,7 @@ class CommandLine:
 
                     inodes = {}
                     dents = {}
-                    ubifs._traverse(ubifs._root_idx_node, ubifs._inode_dent_collector_visitor, inodes=inodes,
+                    ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
                                     dents=dents)
 
                     render_inode_list(image, ubifs, inodes)
@@ -327,12 +405,12 @@ class CommandLine:
                     # TODO: Maybe traverse etc shouldnt be protected functions
                     if do_scan:
                         dents = []
-                        ubifs._scan(ubifs._dent_scan_visitor, dents=dents)
+                        ubifs._scan(visitor._dent_scan_visitor, dents=dents)
                         render_dents(ubifs, dents, use_full_paths)
                     else:
                         inodes = {}
                         dents = {}
-                        ubifs._traverse(ubifs._root_idx_node, ubifs._inode_dent_collector_visitor, inodes=inodes, dents=dents)
+                        ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes, dents=dents)
                         render_dents(ubifs, dents, use_full_paths)
 
                     return
