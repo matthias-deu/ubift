@@ -22,7 +22,7 @@ class Image:
         self._oob_size = oob_size
         self._page_size = page_size if page_size > 0 else self._guess_page_size(data)
         self._block_size = block_size if block_size > 0 else self._guess_block_size(data)
-        self._data = data if oob_size < 0 else Image.strip_oob(data, self.block_size, self.page_size, oob_size)
+        self._data = data if oob_size <= 0 else Image.strip_oob(data, self.block_size, self.page_size, oob_size)
         self._partitions = []
 
         if len(self._data) % block_size != 0:

@@ -1,13 +1,24 @@
 from ubift.framework.structs.ubifs_structs import UBIFS_CH, UBIFS_NODE_TYPES, UBIFS_DENT_NODE, UBIFS_INO_NODE, \
     UBIFS_KEY, UBIFS_DATA_NODE
 from ubift.framework.ubifs import UBIFS
+from ubift.logging import ubiftlog
 
 
-def _dent_scan_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: int, dents: list[UBIFS_DENT_NODE],
+def _dent_scan_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: int, dents: dict[int, list[UBIFS_DENT_NODE]],
                        **kwargs) -> None:
     if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
         block_size = ubifs.ubi_volume.ubi.partition.image.block_size
         dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.ubi.partition.image.data, peb_num * block_size + peb_offs)
+        if dent_node.inum in dents:
+            dents[dent_node.inum].append(dent_node)
+        else:
+            dents[dent_node.inum] = [dent_node]
+
+
+def _dent_scan_leb_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int,
+                           dents: dict, **kwargs):
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
         dents.append(dent_node)
 
 

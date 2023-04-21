@@ -10,7 +10,8 @@ from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, 
 from ubift.framework import visitor
 from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
-from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES, UBIFS_INODE_TYPES
+from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES, UBIFS_INODE_TYPES, UBIFS_MST_NODE, \
+    UBIFS_CH
 from ubift.framework.ubi import UBI
 from ubift.framework.ubifs import UBIFS
 from ubift.logging import ubiftlog
@@ -217,8 +218,9 @@ class CommandLine:
 
             for i,ubi in enumerate(ubi_instances):
                 ubi_dir = os.path.join(output_dir, f"ubi_{i}")
-                rootlog.info(f"[+] Creating directory {ubi_dir}")
-                os.mkdir(os.path.join(output_dir, ubi_dir))
+                if not os.path.exists(ubi_dir):
+                    os.mkdir(ubi_dir)
+                    rootlog.info(f"[+] Creating directory {ubi_dir}")
 
                 for j, ubi_vol in enumerate(ubi.volumes):
 
@@ -228,8 +230,9 @@ class CommandLine:
 
                     ubi_vol_name = ubi_vol.name if len(ubi_vol.name) <= 10 else ubi_vol.name[:10]
                     ubi_vol_dir = os.path.join(ubi_dir, f"ubi_{i}_{j}_{ubi_vol_name}")
-                    os.mkdir(os.path.join(output_dir, ubi_dir))
-                    rootlog.info(f"[+] Creating directory {ubi_vol_dir}")
+                    if not os.path.exists(ubi_vol_dir):
+                        os.mkdir(ubi_vol_dir)
+                        rootlog.info(f"[+] Creating directory {ubi_vol_dir}")
 
                     inodes = {}
                     dents = {}
@@ -404,8 +407,10 @@ class CommandLine:
                     # Traverse B-Tree and collect all dents (inodes dont matter here but are collected too)
                     # TODO: Maybe traverse etc shouldnt be protected functions
                     if do_scan:
-                        dents = []
+                        dents = {}
+                        deleted = []
                         ubifs._scan(visitor._dent_scan_visitor, dents=dents)
+                        #ubifs._scan_lebs(visitor._dent_scan_leb_visitor, dents=dents)
                         render_dents(ubifs, dents, use_full_paths)
                     else:
                         inodes = {}

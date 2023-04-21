@@ -328,15 +328,28 @@ def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bo
     """
     dent_list = dents.values() if isinstance(dents, Dict) else dents
 
-    outfd.write("Type\tInode\tName\n")
+    outfd.write("Type\tInode\tParent\tName\n")
     for dent in dent_list:
-        render_inode_type(dent.type)
-        outfd.write(f"\t{dent.inum}\t")
-        if full_paths:
-            outfd.write(f"{ubifs._unroll_path(dent, dents)}")
+        # TODO: This method supports Dict[int, UBIFS_DENT_NODE] and Dict[int, list[UBIFS_DENT_NODE]] therefore this is needed but maybe it can be implemented in a better way
+        if isinstance(dent, list):
+            for dent2 in dent:
+                render_inode_type(dent2.type)
+                outfd.write(f"\t{dent2.inum}")
+                outfd.write(f"\t{UBIFS_KEY.from_bytearray(dent2.key).inode_num}\t")
+                if full_paths:
+                    outfd.write(f"{ubifs._unroll_path(dent2, dents)}")
+                else:
+                    outfd.write(f"{dent2.formatted_name()}")
+                outfd.write("\n")
         else:
-            outfd.write(f"{dent.formatted_name()}")
-        outfd.write("\n")
+            render_inode_type(dent.type)
+            outfd.write(f"\t{dent.inum}")
+            outfd.write(f"\t{UBIFS_KEY.from_bytearray(dent.key).inode_num}\t")
+            if full_paths:
+                outfd.write(f"{ubifs._unroll_path(dent, dents)}")
+            else:
+                outfd.write(f"{dent.formatted_name()}")
+            outfd.write("\n")
 
 
 def render_inode_type(inode_type: int, outfd=sys.stdout):

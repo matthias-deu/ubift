@@ -334,7 +334,7 @@ class UBIFS:
     def _unroll_path(self, dent: UBIFS_DENT_NODE, dents: dict[int, UBIFS_DENT_NODE]) -> str:
         """
         Fetches the complete path of an UBIFS_DENT_NODE up to the root.
-        UBIFS_DENT_NODE have 2 inode numbers, one (inside the key[] has the inode number of the parent] and dent.inum is its own inode number)
+        UBIFS_DENT_NODE have 2 inode numbers, one (inside the key[] has the inode number of the parent] and dent.inum is the inode number it is referring to)
         Unroll will fetch the UBIFS_DENT_NODE of the parent recursivly until the dent.inum==0(root-directory) has been reached.
         :param dent: The directory  ntry that will have its path unrolled up to the root
         :param dents: All available directory entry nodes
@@ -351,7 +351,10 @@ class UBIFS:
         # Otherwise go up the hierarchy recursivly
         else:
             if parent_inum in dents:
-                return os.path.join(self._unroll_path(dents[parent_inum], dents), cur)
+                if isinstance(dents[parent_inum], list):
+                    return os.path.join(self._unroll_path(dents[parent_inum][0], dents), cur)
+                else:
+                    return os.path.join(self._unroll_path(dents[parent_inum], dents), cur)
             else:
                 return cur
 
