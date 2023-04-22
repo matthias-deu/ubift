@@ -45,7 +45,7 @@ def zpad(num: int, len: str) -> int:
 
 
 def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
-                      outfd=sys.stdout, deleted:bool= False) -> None:
+                      outfd=sys.stdout, deleted:bool= False, datanodes:dict[int, list]=None) -> None:
     """
     Renders a list of inodes to given output. Utilizes same sequence as TSK ils (apart from st_block0, st_block1 and st_alloc entries), see http://www.sleuthkit.org/sleuthkit/man/ils.html
     For the "modes" field in an inode, refer to https://man7.org/linux/man-pages/man7/inode.7.html, it has file_type and a file_mode components
@@ -56,7 +56,11 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
     :param outfd:
     :return:
     """
-    outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size\n")
+    # If datanodes is provided, the number of associated data nodes with an inode node is also printed
+    if datanodes is not None:
+        outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size|data_nodes\n")
+    else:
+        outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size\n")
     for inum, inode in inodes.items():
         if deleted and inode.nlink != 0:
             continue
@@ -72,7 +76,11 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
         nlink = inode.nlink
         size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
 
-        sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}\n")
+        if datanodes is not None:
+            datanode_count = 0 if inum not in datanodes else len(datanodes[inum])
+            sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}|{datanode_count}\n")
+        else:
+            sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}\n")
 
 
 class InodeMode:
@@ -247,7 +255,7 @@ def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_
         return
 
 
-def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_NODE], outfd=sys.stdout) -> None:
+def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_NODE], outfd=sys.stdout, inodes: dict = None) -> None:
     """
     Outputs the content of given data nodes. Also does some validation checks, e.g., checks if size of uncompressed
      data matches the size field in the corersponding UBIFS_INO_NODE
@@ -274,14 +282,18 @@ def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_
                 accu_size += len(data_node.decompressed_data)
 
             # Fetch inode_node and do some validation checks (compare its 'size' field with accumulated size of uncompressed data)
-            inode_node = ubifs._find(ubifs._root_idx_node,
-                                     UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0))
-            if inode_node.ino_size > accu_size:
+            inode_node = None
+            if inodes is not None and inode_num in inodes:
+                inode_node = inodes[inode_num]
+            else:
+                inode_node = ubifs._find(ubifs._root_idx_node,
+                                         UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0))
+            if inode_node is not None and inode_node.ino_size > accu_size:
                 ubiftlog.warning(
                     f"[!] Size from inode field {inode_node.ino_size} is more than written bytes {accu_size}. Filling bytes with zeroes.")
                 temp_file.seek(inode_node.ino_size)
                 temp_file.truncate(inode_node.ino_size)
-            elif accu_size > inode_node.ino_size:
+            elif inode_node is not None and accu_size > inode_node.ino_size:
                 ubiftlog.error(
                     f"[-] More data has been written ({accu_size}) than what should have written indicated by inode size {inode_node.ino_size}.")
 

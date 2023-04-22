@@ -105,6 +105,9 @@ class CommandLine:
         icat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
         icat.add_argument("inode", help="Inode number.", type=int)
         icat.add_argument("-o", "--output", help="If specified, will output data to given file.", type=argparse.FileType('w'))
+        icat.add_argument("--scan", "-s",
+                         help="If set, will perform scanning for signatures instead of traversing the file-index for data nodes. NOTE: This needs to be set if trying to restore deleted inodes.",
+                         default=False, action="store_true")
         icat.set_defaults(func=self.icat)
 
         # ils
@@ -340,13 +343,14 @@ class CommandLine:
 
                     dents = {}
                     inodes = {}
+                    datanodes = {}
                     if do_scan or deleted:
-                        ubifs._scan_lebs(visitor._inode_dent_collector_visitor, inodes=inodes, dents=dents)
+                        ubifs._scan_lebs(visitor._all_collector_visitor, inodes=inodes, dents=dents, datanodes=datanodes)
                     else:
                         ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
                                         dents=dents)
 
-                    render_inode_list(image, ubifs, inodes, deleted=deleted)
+                    render_inode_list(image, ubifs, inodes, deleted=deleted, datanodes=datanodes)
 
                     return
 
@@ -365,6 +369,7 @@ class CommandLine:
         ubi_offset = args.offset
         ubi_vol_name = args.vol_name
         inode_num = args.inode
+        do_scan = args.scan
         output = args.output if args.output is not None else sys.stdout
 
         with open(input, "rb") as f:
@@ -378,12 +383,23 @@ class CommandLine:
                     vol = ubi.get_volume(ubi_vol_name)
                     ubifs = UBIFS(vol)
 
-                    # Find all data nodes for given inode number
-                    min_key = UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_DATA_KEY, 0)
-                    max_key = UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_DATA_KEY + 1, 0)
-                    data_nodes = ubifs._find_range(ubifs._root_idx_node, min_key, max_key)
+                    data_nodes = []
+                    if do_scan:
+                        dents = {}
+                        inodes = {}
+                        datanodes = {}
+                        ubifs._scan_lebs(visitor._all_collector_visitor, inodes=inodes, dents=dents,
+                                         datanodes=datanodes)
+                        if inode_num in datanodes:
+                            data_nodes = datanodes[inode_num]
+                        render_data_nodes(ubifs, inode_num, data_nodes, output, inodes=inodes)
+                    else:
+                        # Find all data nodes for given inode number
+                        min_key = UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_DATA_KEY, 0)
+                        max_key = UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_DATA_KEY + 1, 0)
+                        data_nodes = ubifs._find_range(ubifs._root_idx_node, min_key, max_key)
+                        render_data_nodes(ubifs, inode_num, data_nodes, output)
 
-                    render_data_nodes(ubifs, inode_num, data_nodes, output)
                     return
 
             ubiftlog.error(f"[-] UBI Volume {ubi_vol_name} could not be found. Use 'mtdls' and 'ubils' to determine available UBI instances and their volumes.")
