@@ -16,7 +16,7 @@ from ubift.framework.structs.ubifs_structs import UBIFS_SB_NODE, UBIFS_MST_NODE,
     UBIFS_PAD_NODE, UBIFS_CS_NODE, UBIFS_REF_NODE, parse_arbitrary_node, UBIFS_KEY_TYPES, UBIFS_DATA_NODE, \
     UBIFS_JOURNAL_HEADS, UBIFS_ORPH_NODE
 from ubift.framework.ubi import UBIVolume, LEB
-from ubift.framework.util import crc32, find_signature
+from ubift.framework.util import crc32, find_signature, find_signatures
 from ubift.logging import ubiftlog
 
 # Size of a key in KiB
@@ -71,15 +71,20 @@ class Journal:
 
         bud = []
 
+        index = find_signature(leb.data, "\x31\x18\x10\x06".encode("utf-8"), leb_offs)
         node = parse_arbitrary_node(leb.data, leb_offs)
-        while node is not None and node.ch.validate_magic():
+        while index >= 0 and node is not None and node.ch.validate_magic():
             bud.append(node)
-            leb_offs += type(node).size
+
+            index = find_signature(leb.data, "\x31\x18\x10\x06".encode("utf-8"), index + 1)
+            node = parse_arbitrary_node(leb.data, index)
 
         if len(bud) == 0:
             ubiftlog.info(f"[!] Empty bud {UBIFS_JOURNAL_HEADS(jhead)}")
         else:
-            ubiftlog.info(f"[!] Bud {UBIFS_JOURNAL_HEADS(jhead)} has {len(bud)} nodes")
+            ubiftlog.info(f"[!] Bud {UBIFS_JOURNAL_HEADS(jhead)} has {len(bud)} nodes:")
+            for n in bud:
+                ubiftlog.info(n)
 
         return bud
 
@@ -140,7 +145,7 @@ class UBIFS:
         self.orphan_nodes = self._parse_orphan_nodes()
 
         ubiftlog.info(
-            f"[!] Using masternode seqnum: {self._used_masternode.ch.sqnum}, log LEB: {self._used_masternode.log_lnum}")
+            f"[!] Using masternode {self.masternode_index} seqnum: {self._used_masternode.ch.sqnum}, log LEB: {self._used_masternode.log_lnum}")
 
         self.journal = Journal(self, self._used_masternode.log_lnum)
 

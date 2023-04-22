@@ -45,18 +45,21 @@ def zpad(num: int, len: str) -> int:
 
 
 def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
-                      outfd=sys.stdout) -> None:
+                      outfd=sys.stdout, deleted:bool= False) -> None:
     """
     Renders a list of inodes to given output. Utilizes same sequence as TSK ils (apart from st_block0, st_block1 and st_alloc entries), see http://www.sleuthkit.org/sleuthkit/man/ils.html
     For the "modes" field in an inode, refer to https://man7.org/linux/man-pages/man7/inode.7.html, it has file_type and a file_mode components
+    :param deleted:
     :param image:
     :param ubifs:
     :param inodes:
     :param outfd:
     :return:
     """
-    outfd.write(f"inum,uid,gid,mtime,atime,ctime,mode,nlink,inode_size\n")
+    outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size\n")
     for inum, inode in inodes.items():
+        if deleted and inode.nlink != 0:
+            continue
         uid = inode.uid
         gid = inode.gid
         mtime = inode.mtime_sec if not human_readable else datetime.utcfromtimestamp(inode.mtime_sec).strftime(
@@ -317,9 +320,10 @@ def render_inode_node(ubifs: UBIFS, inode: int, inode_node: UBIFS_INO_NODE, outf
         print(f"{field}: {getattr(inode_node, field)}")
 
 
-def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout) -> None:
+def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout, deleted:bool = False) -> None:
     """
     Renders a dict of UBIFS_NODE_DENT to output (like fls in TSK)
+    :param deleted:
     :param ubifs: UBIFS instance, needed to unroll paths
     :param dents: Dict of inode num->dent
     :param full_paths: If True, will print full paths of files
@@ -333,6 +337,8 @@ def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bo
         # TODO: This method supports Dict[int, UBIFS_DENT_NODE] and Dict[int, list[UBIFS_DENT_NODE]] therefore this is needed but maybe it can be implemented in a better way
         if isinstance(dent, list):
             for dent2 in dent:
+                if deleted and dent2.inum != 0:
+                    continue
                 render_inode_type(dent2.type)
                 outfd.write(f"\t{dent2.inum}")
                 outfd.write(f"\t{UBIFS_KEY.from_bytearray(dent2.key).inode_num}\t")
@@ -342,6 +348,8 @@ def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bo
                     outfd.write(f"{dent2.formatted_name()}")
                 outfd.write("\n")
         else:
+            if deleted and dent.inum != 0:
+                continue
             render_inode_type(dent.type)
             outfd.write(f"\t{dent.inum}")
             outfd.write(f"\t{UBIFS_KEY.from_bytearray(dent.key).inode_num}\t")

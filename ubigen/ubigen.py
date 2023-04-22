@@ -42,11 +42,13 @@ class CommandLine:
 
         # mount
         mount = subparsers.add_parser("mount", help="Mounts an image dump containing UBI & UBIFS.")
+        mount.add_argument("--mtdn", "-m", help="MTD device number.", type=int, required=True, default=0)
+        mount.add_argument("--image", "-i", help="Path to UBI image file.", type=str, required=True)
         mount.set_defaults(func=self._mount)
 
         # simulate
         simulate = subparsers.add_parser("simulate", help="Simulates random write accesses to a mounted UBIFS file system.")
-        create.add_argument("--contentfolder", "-cf", help="Directory of files that will be written to the image dump.",
+        simulate.add_argument("--contentfolder", "-cf", help="Directory of files that will be written to the image dump.",
                             required=True)
         simulate.add_argument("--mount", "-m", help="Where the UBIFS file system is mounted, e.g., /mnt", required=True)
         simulate.add_argument("--count", "-c", help="Amount of operations on files (erases, creations etc)",
@@ -58,9 +60,47 @@ class CommandLine:
         args.func(args)
 
     def _simulate(self, args):
-        pass
+        cf = args.contentfolder
+        mountpoint = args.mount
+        ops = args.count
+        do_dump = args.dump
+
+        if not os.path.exists(cf) or not os.path.isdir(cf):
+            rootlog.error(f"[-] Invalid path to content folder: {cf}")
+            exit(1)
+
+        for i in range(ops):
+            if i % 2 == 0:
+                random_file = random.choice(os.listdir(cf))
+                random_dest = random.choice(os.listdir(mountpoint))
+                shutil.copy(os.path.join(cf, random_file), os.path.join(mountpoint, random_dest))
+                self._execute_command(["sync", "-f", os.path.join(mountpoint, random_dest, random_file)])
+                rootlog.info(f"[!] [{i+1}/{ops}] Copying file: {os.path.join(cf, random_file)} to {os.path.join(mountpoint, random_dest)}")
+            else:
+                done = False
+                while not done:
+                    dir = random.choice(os.listdir(mountpoint))
+                    if len(os.listdir(os.path.join(mountpoint, dir))) == 0:
+                        continue
+                    file = random.choice(os.listdir(os.path.join(mountpoint, dir)))
+                    path = os.path.join(mountpoint, dir, file)
+                    rootlog.info(f"[!] [{i+1}/{ops}] Deleting file: {path}")
+                    os.remove(path)
+                    done = True
+
+        if do_dump is not None:
+            nanddump = ["nanddump", f"/dev/mtd0", "-f", do_dump, "--noecc", "--omitoob"]
+            print(self._execute_command(nanddump))
+
 
     def _mount(self, args):
+        mtdn = args.mtdn
+        image_path = args.image
+
+        if not os.path.exists(image_path) or not os.path.isfile(image_path):
+            rootlog.error(f"[-] Invalid path to image: {image_path}")
+            exit(1)
+
         # Create mtd devices with nandsim
         # Right now this is hardcoded to use a nand flash with parameters
         # 256 MiB, SLC, erase size: 128 KiB, page size: 2048, OOB size: 64
@@ -69,13 +109,13 @@ class CommandLine:
         parts = self._create_parts_string(ubi_instances, peb_count)
         self._nandsim(256, parts)
 
-        ubiformat = ["ubiformat", "/dev/mtd0", "-f", "/tmp/vol0.ubi"]
+        ubiformat = ["ubiformat", f"/dev/mtd{mtdn}", "-f", image_path]
         print(self._execute_command(ubiformat))
 
-        ubiattach = ["ubiattach", "/dev/ubi_ctrl", "-m", "0"]
+        ubiattach = ["ubiattach", "/dev/ubi_ctrl", "-m", str(mtdn)]
         print(self._execute_command(ubiattach))
 
-        mount = ["mount", "-t", "ubifs", "/dev/ubi0_0", "/mnt"]
+        mount = ["mount", "-t", "ubifs", "-o", "sync", "/dev/ubi0_0", "/mnt"]
         print(self._execute_command(mount))
 
     def _create(self, args):

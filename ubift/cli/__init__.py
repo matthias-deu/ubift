@@ -85,6 +85,9 @@ class CommandLine:
         fls.add_argument("vol_name", help="Name of the UBI volume.", type=str)
         fls.add_argument("--path", "-p", help="If set, will output full paths for every file.", default=False, action="store_true")
         fls.add_argument("--scan", "-s", help="If set, will perform scanning for signatures instead of traversing the file-index.", default=False, action="store_true")
+        fls.add_argument("--deleted", "-d",
+                         help="Similar to scan. Will perform scanning for signatures instead of using the file index. Will only show deleted directory entries. This will take priority over --scan.",
+                         default=False, action="store_true")
         fls.set_defaults(func=self.fls)
 
         # istat
@@ -109,6 +112,12 @@ class CommandLine:
         ils.add_argument("input", help="Input flash memory dump.")
         ils.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
         ils.add_argument("vol_name", help="Name of the UBI volume that contains the UBIFS instance.", type=str)
+        ils.add_argument("--scan", "-s",
+                         help="If set, will perform scanning for signatures instead of traversing the file-index.",
+                         default=False, action="store_true")
+        ils.add_argument("--deleted", "-d",
+                         help="Similar to scan. Will perform scanning for signatures instead of using the file index. Will only show deleted inodes. This will take priority over --scan.",
+                         default=False, action="store_true")
         ils.set_defaults(func=self.ils)
 
         # ubift_recover
@@ -315,6 +324,8 @@ class CommandLine:
         input = args.input
         ubi_offset = args.offset
         ubi_vol_name = args.vol_name
+        do_scan = args.scan
+        deleted = args.deleted
 
         with open(input, "rb") as f:
             data = f.read()
@@ -327,12 +338,15 @@ class CommandLine:
                     vol = ubi.get_volume(ubi_vol_name)
                     ubifs = UBIFS(vol)
 
-                    inodes = {}
                     dents = {}
-                    ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
-                                    dents=dents)
+                    inodes = {}
+                    if do_scan or deleted:
+                        ubifs._scan_lebs(visitor._inode_dent_collector_visitor, inodes=inodes, dents=dents)
+                    else:
+                        ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
+                                        dents=dents)
 
-                    render_inode_list(image, ubifs, inodes)
+                    render_inode_list(image, ubifs, inodes, deleted=deleted)
 
                     return
 
@@ -392,6 +406,7 @@ class CommandLine:
         use_full_paths = args.path
         do_scan = args.scan
         master_node_index = args.master
+        deleted = args.deleted
 
         with open(input, "rb") as f:
             data = f.read()
@@ -406,11 +421,10 @@ class CommandLine:
 
                     # Traverse B-Tree and collect all dents (inodes dont matter here but are collected too)
                     # TODO: Maybe traverse etc shouldnt be protected functions
-                    if do_scan:
+                    if do_scan or deleted:
                         dents = {}
-                        #ubifs._scan(visitor._dent_scan_visitor, dents=dents)
                         ubifs._scan_lebs(visitor._dent_scan_leb_visitor, dents=dents)
-                        render_dents(ubifs, dents, use_full_paths)
+                        render_dents(ubifs, dents, use_full_paths, deleted=deleted)
                     else:
                         inodes = {}
                         dents = {}
