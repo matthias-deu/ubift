@@ -16,10 +16,13 @@ def _dent_scan_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, peb_num: int, peb_offs: i
 
 
 def _dent_scan_leb_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int,
-                           dents: dict, **kwargs):
+                           dents: dict[int, list[UBIFS_DENT_NODE]], **kwargs):
     if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
         dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
-        dents.append(dent_node)
+        if dent_node.inum in dents:
+            dents[dent_node.inum].append(dent_node)
+        else:
+            dents[dent_node.inum] = [dent_node]
 
 
 def _inode_dent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,

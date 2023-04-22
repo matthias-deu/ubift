@@ -408,9 +408,8 @@ class CommandLine:
                     # TODO: Maybe traverse etc shouldnt be protected functions
                     if do_scan:
                         dents = {}
-                        deleted = []
-                        ubifs._scan(visitor._dent_scan_visitor, dents=dents)
-                        #ubifs._scan_lebs(visitor._dent_scan_leb_visitor, dents=dents)
+                        #ubifs._scan(visitor._dent_scan_visitor, dents=dents)
+                        ubifs._scan_lebs(visitor._dent_scan_leb_visitor, dents=dents)
                         render_dents(ubifs, dents, use_full_paths)
                     else:
                         inodes = {}
