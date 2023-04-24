@@ -154,25 +154,6 @@ class UBIFS:
 
         ubiftlog.info(f"[!] Initialized UBIFS instance for {self._ubi_volume}")
 
-        # self._scan_lebs(self._test_visitor)
-
-        # self._traverse(self._root_idx_node, self._test_visitor)
-
-        # print(dents[239].formatted_name())
-        # print(self._unroll_path(dents[239], dents, inodes))
-        # for dent in dents.values():
-        #    print(dent.inum)
-
-        # key = UBIFS_KEY.create_key(363, 2, key_r5_hash("0914_2023-03-01T114645+0100_6EE37D_000C.pud"))
-        # node = self._find(self._root_idx_node, key)
-        # print(node.formatted_name())
-
-        # key = UBIFS_KEY.create_key(255, UBIFS_KEY_TYPES.UBIFS_INO_KEY)
-        # print(bytearray(key.pack()).hex(sep=","))
-
-        # node = self._find(self._root_idx_node, key)
-        # print(bytearray(node.key).hex(sep=","))
-        # print(node)
 
     def _parse_orphan_nodes(self) -> list[UBIFS_ORPH_NODE]:
         """
@@ -237,7 +218,8 @@ class UBIFS:
             index = find_signature(leb_data, ch_hdr_sig, index + 1)
 
         # sort them based on sequence number
-        mst_nodes.sort(key=lambda mst_node: mst_node.ch.sqnum, reverse=True)
+        #mst_nodes.sort(key=lambda mst_node: mst_node.ch.sqnum, reverse=True)
+        mst_nodes.sort(key=lambda mst_node: mst_node.cmt_no, reverse=True)
 
         ubiftlog.info(f"[+] Found {len(mst_nodes)} master nodes in LEB {leb_num}.")
 
@@ -340,7 +322,7 @@ class UBIFS:
         """
         Fetches the complete path of an UBIFS_DENT_NODE up to the root.
         UBIFS_DENT_NODE have 2 inode numbers, one (inside the key[] has the inode number of the parent] and dent.inum is the inode number it is referring to)
-        Unroll will fetch the UBIFS_DENT_NODE of the parent recursivly until the dent.inum==0(root-directory) has been reached.
+        Unroll will fetch the UBIFS_DENT_NODE of the parent recursivly until the dent.inum==1(root-directory) has been reached.
         :param dent: The directory  ntry that will have its path unrolled up to the root
         :param dents: All available directory entry nodes
         :return:
@@ -351,15 +333,17 @@ class UBIFS:
 
         cur = dent.formatted_name()
         # Root reached?
-        if parent_inum == 0:
+        if parent_inum == 1:
             return cur
         # Otherwise go up the hierarchy recursivly
         else:
             if parent_inum in dents:
                 if isinstance(dents[parent_inum], list):
-                    return os.path.join(self._unroll_path(dents[parent_inum][0], dents), cur)
+                    #return os.path.join(self._unroll_path(dents[parent_inum][0], dents), cur)  TODO: It looks weird on windows with \-seperators
+                    return self._unroll_path(dents[parent_inum][0], dents) + "/" + cur
                 else:
-                    return os.path.join(self._unroll_path(dents[parent_inum], dents), cur)
+                   # return os.path.join(self._unroll_path(dents[parent_inum], dents), cur)
+                   return self._unroll_path(dents[parent_inum], dents) + "/" + cur
             else:
                 return cur
 
@@ -474,7 +458,7 @@ class UBIFS:
 
         for i, branch in enumerate(node.branches):
             if i == len(node.branches) - 1:
-                break
+               break
             idx_node = self._create_idx_node(branch)
             if idx_node is not None:
                 self._traverse(idx_node, traversal_function, **kwargs)
@@ -486,7 +470,11 @@ class UBIFS:
         last_branch = node.branches[-1]
         idx_node = self._create_idx_node(last_branch)
         if idx_node is not None:
-            self._traverse(idx_node, traversal_function, **kwargs)
+           self._traverse(idx_node, traversal_function, **kwargs)
+
+        ch_hdr = UBIFS_CH(self.ubi_volume.lebs[last_branch.lnum].data, last_branch.offs) if idx_node is None else idx_node.ch
+        if ch_hdr is not None:
+            traversal_function(self, ch_hdr, last_branch.lnum, last_branch.offs, **kwargs)
 
     def _create_idx_node(self, branch: UBIFS_BRANCH) -> UBIFS_IDX_NODE:
         """

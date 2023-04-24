@@ -19,7 +19,7 @@ from ubift.logging import ubiftlog
 rootlog = logging.getLogger()
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
-formatter = logging.Formatter("%(levelname)-8s %(name)-12s: %(message)s")
+formatter = logging.Formatter("%(levelname)-4s %(name)-3s: %(message)s")
 console.setFormatter(formatter)
 
 rootlog.setLevel(1)
@@ -123,6 +123,18 @@ class CommandLine:
                          default=False, action="store_true")
         ils.set_defaults(func=self.ils)
 
+        # ffind
+        ffind = subparsers.add_parser("ffind", help="Outputs directory entries associated with a given inode number.")
+        ffind.add_argument("input", help="Input flash memory dump.")
+        ffind.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        ffind.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        ffind.add_argument("--path", "-p", help="If set, will output full paths for every file.", default=False, action="store_true")
+        ffind.add_argument("inode", help="Inode number.", type=int)
+        ffind.add_argument("--scan", "-s",
+                         help="If set, will perform scanning for signatures instead of traversing the file-index for data nodes. NOTE: This needs to be set if trying to find directory entries for deleted inodes.",
+                         default=False, action="store_true")
+        ffind.set_defaults(func=self.ffind)
+
         # ubift_recover
         # This command is used by the Autopsy plugin
         ubift_recover = subparsers.add_parser("ubift_recover", help="Extracts all files found in UBIFS instances. Creates one directory for each UBI volume with UBIFS.")
@@ -131,11 +143,11 @@ class CommandLine:
         ubift_recover.set_defaults(func=self.ubift_recover)
 
         # Adds default arguments such as --blocksize to all previously defined commands
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat, ubift_recover]
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat, ffind, ubift_recover]
         for command in commands:
             self.add_default_image_args(command)
 
-        file_system_layer_commands = [fls]
+        file_system_layer_commands = [fls, ffind, istat, ils]
         for command in file_system_layer_commands:
             self.add_default_ubifs_args(command)
 
@@ -346,11 +358,13 @@ class CommandLine:
                     datanodes = {}
                     if do_scan or deleted:
                         ubifs._scan_lebs(visitor._all_collector_visitor, inodes=inodes, dents=dents, datanodes=datanodes)
+                        render_inode_list(image, ubifs, inodes, deleted=deleted, datanodes=datanodes, dents=dents)
                     else:
                         ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
                                         dents=dents)
+                        render_inode_list(image, ubifs, inodes)
 
-                    render_inode_list(image, ubifs, inodes, deleted=deleted, datanodes=datanodes)
+
 
                     return
 
@@ -384,6 +398,7 @@ class CommandLine:
                     ubifs = UBIFS(vol)
 
                     data_nodes = []
+                    # For deleted content a scan has to be performed otherwise the data nodes cannot be found
                     if do_scan:
                         dents = {}
                         inodes = {}
@@ -405,6 +420,59 @@ class CommandLine:
             ubiftlog.error(f"[-] UBI Volume {ubi_vol_name} could not be found. Use 'mtdls' and 'ubils' to determine available UBI instances and their volumes.")
             output.close()
             os.remove(output.name)
+
+    def ffind(self, args) -> None:
+        """
+        Lists all directory entries for a given inode number. They can either be found by traversing the file-index
+        or by scanning for ubifs_ch headers (with the --scan flag).
+        :param args:
+        :return:
+        """
+        CommandLine.verbose(args)
+
+        input = args.input
+        ubi_offset = args.offset
+        ubi_vol_name = args.vol_name
+        use_full_paths = args.path
+        inode_number = args.inode
+        do_scan = args.scan
+        master_node_index = args.master
+
+        with open(input, "rb") as f:
+            data = f.read()
+
+            image = self._initialize_image(data, args)
+            ubi_instances = self._initialize_ubi_instances(image, True)
+
+            for ubi in ubi_instances:
+                if ubi.peb_offset == ubi_offset and ubi.get_volume(ubi_vol_name) is not None:
+                    vol = ubi.get_volume(ubi_vol_name)
+                    ubifs = UBIFS(vol, masternode_index=master_node_index)
+
+                    # Traverse B-Tree and collect all dents (inodes dont matter here but are collected too)
+                    # TODO: Maybe traverse etc shouldnt be protected functions
+                    if do_scan:
+                        dents = {}
+                        ubifs._scan_lebs(visitor._dent_scan_leb_visitor, dents=dents)
+                        if inode_number not in dents:
+                            dents = {}
+                        else:
+                            dents = { inode_number: dents[inode_number] }
+                        render_dents(ubifs, dents, use_full_paths)
+                    else:
+                        # TODO: This can be done more efficiently with traverse_range for the dents
+                        inodes = {}
+                        dents = {}
+                        ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes, dents=dents)
+                        if inode_number not in dents:
+                            dents = {}
+                        else:
+                            dents = { inode_number: dents[inode_number] }
+                        render_dents(ubifs, dents, use_full_paths)
+
+                    return
+
+            rootlog.error(f"[-] UBI Volume {ubi_vol_name} could not be found.")
 
     def fls(self, args) -> None:
         """

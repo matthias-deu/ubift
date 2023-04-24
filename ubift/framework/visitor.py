@@ -25,13 +25,16 @@ def _dent_scan_leb_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_off
             dents[dent_node.inum] = [dent_node]
 
 def _all_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
-                                  dents: dict, datanodes: dict[int, list], **kwargs) -> None:
+                                  dents: dict[int, list], datanodes: dict[int, list], **kwargs) -> None:
     """
     Same as "_inode_dent_collector_visitor" but also collects data nodes.
     """
     if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
         dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
-        dents[dent_node.inum] = dent_node
+        if dent_node.inum in dents:
+            dents[dent_node.inum].append(dent_node)
+        else:
+            dents[dent_node.inum] = [dent_node]
     elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
         inode_node = UBIFS_INO_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
         key = UBIFS_KEY(bytes(inode_node.key[:8]))
@@ -45,7 +48,7 @@ def _all_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_off
             datanodes[key.inode_num] = [data_node]
 
 def _inode_dent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
-                                  dents: dict,
+                                  dents: dict[int, list],
                                   **kwargs) -> None:
     """
     A Visitor that collects all nodes of types UBIFS_DENT_NODE and UBIFS_INO_NODE and stores them in the dicts 'inodes' and 'dents'
@@ -59,7 +62,10 @@ def _inode_dent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, 
     """
     if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
         dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
-        dents[dent_node.inum] = dent_node
+        if dent_node.inum in dents:
+            dents[dent_node.inum].append(dent_node)
+        else:
+            dents[dent_node.inum] = [dent_node]
     elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
         inode_node = UBIFS_INO_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
         key = UBIFS_KEY(bytes(inode_node.key[:8]))

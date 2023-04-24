@@ -45,7 +45,7 @@ def zpad(num: int, len: str) -> int:
 
 
 def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
-                      outfd=sys.stdout, deleted:bool= False, datanodes:dict[int, list]=None) -> None:
+                      outfd=sys.stdout, deleted:bool= False, datanodes:dict[int, list]=None , dents:dict[int, list]=None) -> None:
     """
     Renders a list of inodes to given output. Utilizes same sequence as TSK ils (apart from st_block0, st_block1 and st_alloc entries), see http://www.sleuthkit.org/sleuthkit/man/ils.html
     For the "modes" field in an inode, refer to https://man7.org/linux/man-pages/man7/inode.7.html, it has file_type and a file_mode components
@@ -58,7 +58,7 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
     """
     # If datanodes is provided, the number of associated data nodes with an inode node is also printed
     if datanodes is not None:
-        outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size|data_nodes\n")
+        outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size|data_nodes|dent_nodes\n")
     else:
         outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size\n")
     for inum, inode in inodes.items():
@@ -76,9 +76,10 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
         nlink = inode.nlink
         size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
 
-        if datanodes is not None:
+        if datanodes is not None and dents is not None:
             datanode_count = 0 if inum not in datanodes else len(datanodes[inum])
-            sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}|{datanode_count}\n")
+            dentnode_count = 0 if inum not in dents else len(dents[inum])
+            sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}|{datanode_count}|{dentnode_count}\n")
         else:
             sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}\n")
 

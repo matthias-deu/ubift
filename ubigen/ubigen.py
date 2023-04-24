@@ -53,7 +53,7 @@ class CommandLine:
         simulate.add_argument("--mount", "-m", help="Where the UBIFS file system is mounted, e.g., /mnt", required=True)
         simulate.add_argument("--count", "-c", help="Amount of operations on files (erases, creations etc)",
                             default=800)
-        simulate.add_argument("--dump", "-d", help="If set to a path, will create a dump of the UBIFS file system.", type=str)
+        simulate.add_argument("--dump", "-d", help="If set to a path, will create a dump of the UBIFS file system via nanddump (without OOB).", type=str)
         simulate.set_defaults(func=self._simulate)
 
         args = parser.parse_args()
@@ -71,12 +71,14 @@ class CommandLine:
 
         for i in range(ops):
             if i % 2 == 0:
+                # Copy random file from contentfolder to random folder in UBIFS
                 random_file = random.choice(os.listdir(cf))
                 random_dest = random.choice(os.listdir(mountpoint))
                 shutil.copy(os.path.join(cf, random_file), os.path.join(mountpoint, random_dest))
-                self._execute_command(["sync", "-f", os.path.join(mountpoint, random_dest, random_file)])
+                #self._execute_command(["sync", "-f", os.path.join(mountpoint, random_dest, random_file)])
                 rootlog.info(f"[!] [{i+1}/{ops}] Copying file: {os.path.join(cf, random_file)} to {os.path.join(mountpoint, random_dest)}")
             else:
+                # Delete random file in UBIFS
                 done = False
                 while not done:
                     dir = random.choice(os.listdir(mountpoint))
@@ -207,9 +209,8 @@ class CommandLine:
 
     def get_mtd_devices(self) -> list[str]:
         """
-        :return: Returns the contents of /sys/class/mtd
+        :return: Returns the contents of /sys/class/mtd (all available mtd devices)
         """
-
         cmd = ["ls", "/sys/class/mtd"]
         process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         output = process.stdout
