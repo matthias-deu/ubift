@@ -227,9 +227,15 @@ def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_
     :return:
     """
 
-    if os.path.exists(abs_path):
-        ubiftlog.error(f"[-] Cannot create file because it already exists: {abs_path}.")
-        return
+    counter = 0
+    filename, extension = os.path.splitext(abs_path)
+    while os.path.exists(abs_path):
+        counter += 1
+        #ubiftlog.error(f"[-] Cannot create file because it already exists: {abs_path}.")
+        abs_path = filename + f"({counter})" + extension
+
+    if counter > 0:
+        ubiftlog.warn(f"[!] File {filename} already existed, renamed to: {abs_path}.")
 
     with open(abs_path, mode="w+b") as f:
         accu_size = 0  # accumulated size of uncompressed data from data nodes
@@ -244,7 +250,7 @@ def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_
 
         if inode.ino_size > accu_size:
             ubiftlog.warning(
-                f"[!] Size from inode field {inode.ino_size} is more than written bytes {accu_size}. Filling bytes with zeroes.")
+                f"[!] Size from inode field 'size' ({inode.ino_size}) is more than written bytes {accu_size}. Filling bytes with zeroes.")
             f.seek(inode.ino_size)
             f.truncate(inode.ino_size)
         elif accu_size > inode.ino_size:

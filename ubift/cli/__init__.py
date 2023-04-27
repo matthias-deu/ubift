@@ -95,6 +95,9 @@ class CommandLine:
         istat.add_argument("input", help="Input flash memory dump.")
         istat.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
         istat.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        istat.add_argument("--scan", "-s",
+                         help="If set, will perform scanning for inodes instead of traversing the file-index. Thus allowing to use istat on inodes that are no longer part of the file index.",
+                         default=False, action="store_true")
         istat.add_argument("inode", help="Inode number.", type=int)
         istat.set_defaults(func=self.istat)
 
@@ -139,6 +142,9 @@ class CommandLine:
         # This command is used by the Autopsy plugin
         ubift_recover = subparsers.add_parser("ubift_recover", help="Extracts all files found in UBIFS instances. Creates one directory for each UBI volume with UBIFS.")
         ubift_recover.add_argument("input", help="Input flash memory dump.")
+        ubift_recover.add_argument("--deleted", "-d",
+                         help="If this parameter is set, all inodes not present within the file index which are found by scanning the dump will be recovered if possible. For each UBIFS instance, the recovered files will be saved to an additional folder 'RECOVERED_FILES'.",
+                         default=False, action="store_true")
         ubift_recover.add_argument("-o", "--output", help="Output directory where all files and directories will be dumped to.", type=str)
         ubift_recover.set_defaults(func=self.ubift_recover)
 
@@ -227,6 +233,7 @@ class CommandLine:
 
         input = args.input
         output_dir = args.output
+        deleted = args.deleted
 
         if output_dir is None or not os.path.exists(output_dir) or not os.path.isdir(output_dir):
             rootlog.error(f"[-] Folder {output_dir} not specified or does not exist.")
@@ -263,32 +270,69 @@ class CommandLine:
                     data = {}
                     ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_data_collector_visitor, inodes=inodes,
                                     dents=dents, data=data)
-                    for dent in dents.values():
-                        if UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_DIR:
-                            full_dir = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
-                            rootlog.info(f"[+] Creating directory {full_dir}")
-                            os.makedirs(full_dir, exist_ok=True)
-                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_REG:
-                            inode_num = dent.inum
-                            full_filepath = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
-                            os.makedirs(os.path.dirname(full_filepath), exist_ok=True)
-                            if inode_num not in inodes or inode_num not in data or len(data[inode_num]) == 0:
-                                rootlog.warning(f"[-] Cannot create file because cannot find its inode ({inode_num not in inodes}) or it has no data nodes ({inode_num not in data}): {full_filepath}")
-                                continue
-                            write_to_file(inodes[inode_num], data[inode_num], full_filepath)
-                            rootlog.info(f"[+] Creating file {full_filepath}")
-                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_LNK:
-                            rootlog.warning(f"[!] Encountered type LNK (will be skipped): {dent.formatted_name()}")
-                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_BLK:
-                            rootlog.warning(f"[!] Encountered type BLK (will be skipped): {dent.formatted_name()}")
-                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_CHR:
-                            rootlog.warning(f"[!] Encountered type CHR (will be skipped): {dent.formatted_name()}")
-                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_FIFO:
-                            rootlog.warning(f"[!] Encountered type FIFO (will be skipped): {dent.formatted_name()}")
-                        elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_SOCK:
-                            rootlog.warning(f"[!] Encountered type SOCK (will be skipped): {dent.formatted_name()}")
+
+                    if deleted:
+                        scanned_inodes = {}
+                        scanned_dents = {}
+                        scanned_data_nodes = {}
+                        ubifs._scan_lebs(visitor._all_collector_visitor, inodes=scanned_inodes, dents=scanned_dents, datanodes=scanned_data_nodes)
+
+                    for dent_list in dents.values():
+                        for dent in dent_list:
+                            if UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_DIR:
+                                full_dir = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
+                                rootlog.info(f"[+] Creating directory {full_dir}")
+                                os.makedirs(full_dir, exist_ok=True)
+                            elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_REG:
+                                inode_num = dent.inum
+                                full_filepath = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
+                                os.makedirs(os.path.dirname(full_filepath), exist_ok=True)
+                                if inode_num not in inodes or inode_num not in data or len(data[inode_num]) == 0:
+                                    rootlog.warning(f"[-] Cannot create file because cannot find its inode ({inode_num not in inodes}) or it has no data nodes ({inode_num not in data}): {full_filepath}")
+                                    continue
+                                write_to_file(inodes[inode_num], data[inode_num], full_filepath)
+                                rootlog.info(f"[+] Creating file {full_filepath}")
+                            elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_LNK:
+                                rootlog.warning(f"[!] Encountered type LNK (will be skipped): {dent.formatted_name()}")
+                            elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_BLK:
+                                rootlog.warning(f"[!] Encountered type BLK (will be skipped): {dent.formatted_name()}")
+                            elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_CHR:
+                                rootlog.warning(f"[!] Encountered type CHR (will be skipped): {dent.formatted_name()}")
+                            elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_FIFO:
+                                rootlog.warning(f"[!] Encountered type FIFO (will be skipped): {dent.formatted_name()}")
+                            elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_SOCK:
+                                rootlog.warning(f"[!] Encountered type SOCK (will be skipped): {dent.formatted_name()}")
+                            else:
+                                rootlog.warning(f"[!] Encountered unknown type (will be skipped): {dent.formatted_name()}")
+
+                    if not deleted:
+                        return
+
+                    deleted_dir = os.path.join(ubi_vol_dir, "UBIFT_RECOVERED_FILES")
+                    if not os.path.exists(deleted_dir):
+                        os.mkdir(deleted_dir)
+
+                    for inode_num, inode in scanned_inodes.items():
+                        if inode_num in inodes: # This file is in the file index, so ignore it here.
+                            continue
+                        # TODO: maybe restore full path instead of putting everything into the recovered-folder
+                        #full_filepath = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
+                        #os.makedirs(os.path.dirname(full_filepath), exist_ok=True)
+                        if inode_num not in scanned_data_nodes or len(scanned_data_nodes[inode_num]) == 0:
+                            name = ""
+                            if inode_num in scanned_dents and len(scanned_dents[inode_num]) > 0:
+                                name = scanned_dents[inode_num][0].formatted_name()
+                            rootlog.warning(f"[-] Cannot recover deleted inode {inode_num} ({name}) because there are no more data nodes for it.")
+                            continue
+
+                        if inode_num in scanned_dents and len(scanned_dents[inode_num]) > 0:
+                            full_filepath = os.path.join(deleted_dir, scanned_dents[inode_num][0].formatted_name())
                         else:
-                            rootlog.warning(f"[!] Encountered unknown type (will be skipped): {dent.formatted_name()}")
+                            full_filepath = os.path.join(deleted_dir, f"RECOVERED_INODE_DATA_{inode_num}")
+
+                        write_to_file(inode, scanned_data_nodes[inode_num], full_filepath)
+                        rootlog.info(f"[+] Recovering file {full_filepath} from inode {inode_num}.")
+
 
 
     def istat(self, args) -> None:
@@ -302,7 +346,12 @@ class CommandLine:
         input = args.input
         ubi_offset = args.offset
         ubi_vol_name = args.vol_name
+        do_scan = args.scan
         inode_num = args.inode
+
+        if inode_num <= 0:
+            rootlog.error(f"[-] Invalid inode number {inode_num}.")
+            return
 
         with open(input, "rb") as f:
             data = f.read()
@@ -317,7 +366,15 @@ class CommandLine:
 
                     # Construct key and try to find it in B-Tree
                     inode_node_key = UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0)
-                    node = ubifs._find(ubifs._root_idx_node, inode_node_key)
+                    if do_scan:
+                        dents = {}
+                        inodes = {}
+                        datanodes = {}
+                        ubifs._scan_lebs(visitor._all_collector_visitor, inodes=inodes, dents=dents, datanodes=datanodes)
+                        if inode_num in inodes:
+                            node = inodes[inode_num]
+                    else:
+                        node = ubifs._find(ubifs._root_idx_node, inode_node_key)
 
                     if node == None or inode_node_key != UBIFS_KEY(bytes(node.key[:8])):
                         rootlog.error(f"[-] Inode {inode_num} could not be found in UBIFS of UBI Volume {ubi_vol_name}.")

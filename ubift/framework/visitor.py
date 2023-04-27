@@ -72,11 +72,14 @@ def _inode_dent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, 
         inodes[key.inode_num] = inode_node
 
 
-def _inode_dent_data_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
-                                       dents: dict, data: dict, **kwargs) -> None:
+def _inode_dent_data_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict[int, UBIFS_INO_NODE],
+                                       dents: dict[int, list], data: dict[int, list], **kwargs) -> None:
     if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
         dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
-        dents[dent_node.inum] = dent_node
+        if dent_node.inum not in dents:
+            dents[dent_node.inum] = [dent_node]
+        else:
+            dents[dent_node.inum].append(dent_node)
     elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
         inode_node = UBIFS_INO_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
         key = UBIFS_KEY(bytes(inode_node.key[:8]))

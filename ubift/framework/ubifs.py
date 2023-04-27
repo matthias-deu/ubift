@@ -339,11 +339,9 @@ class UBIFS:
         else:
             if parent_inum in dents:
                 if isinstance(dents[parent_inum], list):
-                    #return os.path.join(self._unroll_path(dents[parent_inum][0], dents), cur)  TODO: It looks weird on windows with \-seperators
-                    return self._unroll_path(dents[parent_inum][0], dents) + "/" + cur
+                    return os.path.join(self._unroll_path(dents[parent_inum][0], dents), cur)
                 else:
-                   # return os.path.join(self._unroll_path(dents[parent_inum], dents), cur)
-                   return self._unroll_path(dents[parent_inum], dents) + "/" + cur
+                   return os.path.join(self._unroll_path(dents[parent_inum], dents), cur)
             else:
                 return cur
 
