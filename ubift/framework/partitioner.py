@@ -4,7 +4,7 @@ from typing import List
 
 from ubift.framework.mtd import Partition, Image
 from ubift.framework.structs.structs import FDT_HEADER
-from ubift.framework.structs.ubi_structs import UBI_EC_HDR
+from ubift.framework.structs.ubi_structs import UBI_EC_HDR, UBI_VID_HDR
 from ubift.framework.util import find_signature, find_signatures
 
 ubiftlog = logging.getLogger(__name__)
@@ -96,8 +96,27 @@ class UBIPartitioner(Partitioner):
         if start < 0:
             return None
 
+        # TODO: Check the VID_HDR if the leb num maybe already belongs to a new UBI instance
+        volume_lebs = {}
         current = start
         while image.data[current:current+4] == UBI_EC_HDR.__magic__:
+
+            # Check if the lnum in the vid_hdr was already seen (is in the volume_lebs dict),
+            #   in which case this might already be another UBI instance
+            ec_hdr = UBI_EC_HDR(image.data, current)
+            vid_hdr = UBI_VID_HDR(image.data, current + ec_hdr.vid_hdr_offset)
+            if vid_hdr.validate_magic():
+                if vid_hdr.vol_id not in volume_lebs:
+                    volume_lebs[vid_hdr.vol_id] = [vid_hdr.lnum]
+                elif vid_hdr.vol_id in volume_lebs:
+                    if vid_hdr.lnum in volume_lebs[vid_hdr.vol_id]:
+                        # TODO: Check if this works when two UBI instances are placed sequentially in a dump
+                        ubiftlog.info(f"[!] Two UBI instances lie sequentially one after the other.")
+                        current -= image.block_size
+                        break
+                    else:
+                        volume_lebs[vid_hdr.vol_id].append(vid_hdr.lnum)
+
             current += image.block_size
         end = current-1
 

@@ -367,6 +367,8 @@ class CommandLine:
                     # Construct key and try to find it in B-Tree
                     inode_node_key = UBIFS_KEY.create_key(inode_num, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0)
                     if do_scan:
+                        # TODO: When scanning, multiple inodes can possibly be found (the original one and the deletion one with nlink=0)
+                        #   Therefore maybe it is necessary to utilize dict[int, list] approach for scan methods instead of mere lists
                         dents = {}
                         inodes = {}
                         datanodes = {}

@@ -84,7 +84,6 @@ class Image:
         """
         Tries to guess the page size by calculating the space between an ubi_ec_hdr and a ubi_vid_hdr.
         This is simply done by looking at the 'vid_hdr_offset' field of an ec-header.
-        NOTE: This will probably fail if the flash allows sub-paging because UBI will use that feature to fit both headers inside one page (needs testing)
         :return: Size of a page or raises an exception if guess failed.
         """
         ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
