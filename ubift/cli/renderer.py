@@ -44,6 +44,50 @@ def zpad(num: int, len: str) -> int:
     return format(num, len)
 
 
+def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
+                               scanned_dents: dict, scanned_data_nodes: dict, inode_info: bool = False, outfd=sys.stdout) -> None:
+    """
+    Prints recoverability information regarding deleted inodes
+    :param image: Image instance
+    :param ubifs: UBIFS instance
+    :param scanned_inodes: Created from _all_collector_visitor
+    :param scanned_dents: Created from _all_collector_visitor
+    :param scanned_data_nodes: Created from _all_collector_visitor
+    :param inode_info: If true, will print additional per-inode information regarding recoverability
+    :param outfd: Where to output everything
+    :return:
+    """
+    outfd.write(f"Deleted Inodes found: {len([inode for inode in scanned_inodes.values() if inode.nlink == 0])}\n")
+
+    total_size = 0
+    total_recoverable = 0
+
+    if inode_info:
+        outfd.write("Inode\t\tSize\t\t\tRecoverable\t\t%\n")
+    for inum, inode in scanned_inodes.items():
+        if inode.nlink == 0:
+            size = inode.ino_size
+            recoverable = min(len(scanned_data_nodes[inum]) * 4096, size) if inum in scanned_data_nodes else 0
+            total_size += size
+            total_recoverable += recoverable
+            if inode_info:
+                outfd.write(f"{zpad(inum, 6)}\t\t{zpad(inode.ino_size, 13)}\t\t{zpad(recoverable, 13)}\t\t{'{:.0%}'.format(recoverable / inode.ino_size)}\n")
+
+    outfd.write(f"Accumulated Deleted Inode Size: {total_size} ({readable_size(total_size)})\n")
+    outfd.write(f"Total Recoverable Bytes: {total_recoverable} ({readable_size(total_recoverable)}) => {'{:.0%}'.format(total_recoverable / total_size)}\n")
+
+    fs_size = ubifs.superblock.leb_cnt * ubifs.superblock.leb_size
+    outfd.write(f"File System Size: {fs_size} ({readable_size(fs_size)})\n")
+
+    master_node = ubifs._used_masternode
+    # total is equal to fs_size
+    # total = master_node.total_free + master_node.total_dirty + master_node.total_used + master_node.total_dead + master_node.total_dark
+    attrs = {"total_free": "Free Space", "total_dirty": "Dirty Space",
+             "total_used": "Total Used Space", "total_dead": "Total Dead Space",
+             "total_dark": "Total Dark Space"}
+    for k,v in attrs.items():
+        outfd.write(f"{v}: {getattr(ubifs._used_masternode, k)} ({readable_size(getattr(ubifs._used_masternode, k))})\n")
+
 def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
                       outfd=sys.stdout, deleted:bool= False, datanodes:dict[int, list]=None , dents:dict[int, list]=None) -> None:
     """

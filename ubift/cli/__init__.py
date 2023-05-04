@@ -148,8 +148,16 @@ class CommandLine:
         ubift_recover.add_argument("-o", "--output", help="Output directory where all files and directories will be dumped to.", type=str)
         ubift_recover.set_defaults(func=self.ubift_recover)
 
+        # ubift_info
+        ubift_info = subparsers.add_parser("ubift_info", help="Outputs information regarding recoverability of deleted inodes. This parameter takes priority over all other parameters.")
+        ubift_info.add_argument("input", help="Input flash memory dump.")
+        ubift_info.add_argument("offset", help="Offset in PEBs to where the UBI instance starts. Use 'mtdls' to determine offset.", type=int)
+        ubift_info.add_argument("vol_name", help="Name of the UBI volume.", type=str)
+        ubift_info.add_argument("--inode_info", "-ii", help="If set, will output recoverability information for every found deleted inode.", default=False, action="store_true")
+        ubift_info.set_defaults(func=self.ubift_info)
+
         # Adds default arguments such as --blocksize to all previously defined commands
-        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat, ffind, ubift_recover]
+        commands = [mtdls, mtdcat, pebcat, ubils, lebls, lebcat, fls, istat, icat, ils, fsstat, ffind, ubift_recover, ubift_info]
         for command in commands:
             self.add_default_image_args(command)
 
@@ -222,6 +230,37 @@ class CommandLine:
         if hasattr(args, "verbose") and args.verbose is False:
             logging.disable(logging.INFO)
             logging.disable(logging.WARN)
+
+    def ubift_info(self, args) -> None:
+        """
+        Sub-command of ubift_recover
+        :param args:
+        :return:
+        """
+        input = args.input
+        inode_info = args.inode_info
+
+        with open(input, "rb") as f:
+            data = f.read()
+
+            image = self._initialize_image(data, args)
+            ubi_instances = self._initialize_ubi_instances(image, True)
+
+            for i, ubi in enumerate(ubi_instances):
+                for j, ubi_vol in enumerate(ubi.volumes):
+                    ubifs = UBIFS(ubi_vol)
+
+                    scanned_inodes = {}
+                    scanned_dents = {}
+                    scanned_data_nodes = {}
+                    ubifs._scan_lebs(visitor._all_collector_visitor, inodes=scanned_inodes, dents=scanned_dents,
+                                     datanodes=scanned_data_nodes)
+
+                    renderer.render_recoverability_info(image, ubifs, scanned_inodes, scanned_dents, scanned_data_nodes, inode_info=inode_info)
+
+
+
+
 
     def ubift_recover(self, args) -> None:
         """
