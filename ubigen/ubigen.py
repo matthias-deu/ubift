@@ -6,7 +6,6 @@ import subprocess
 import sys
 import getpass
 import random
-from time import sleep
 
 rootlog = logging.getLogger("ubigen")
 console = logging.StreamHandler()

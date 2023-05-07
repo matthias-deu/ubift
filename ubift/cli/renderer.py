@@ -74,7 +74,8 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
                 outfd.write(f"{zpad(inum, 6)}\t\t{zpad(inode.ino_size, 13)}\t\t{zpad(recoverable, 13)}\t\t{'{:.0%}'.format(recoverable / inode.ino_size)}\n")
 
     outfd.write(f"Accumulated Deleted Inode Size: {total_size} ({readable_size(total_size)})\n")
-    outfd.write(f"Total Recoverable Bytes: {total_recoverable} ({readable_size(total_recoverable)}) => {'{:.0%}'.format(total_recoverable / total_size)}\n")
+    percentage = "0%" if total_size == 0 else '{:.0%}'.format(total_recoverable / total_size)
+    outfd.write(f"Total Recoverable Bytes: {total_recoverable} ({readable_size(total_recoverable)}) => {percentage}\n")
 
     fs_size = ubifs.superblock.leb_cnt * ubifs.superblock.leb_size
     outfd.write(f"File System Size: {fs_size} ({readable_size(fs_size)})\n")

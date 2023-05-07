@@ -239,6 +239,8 @@ class CommandLine:
         """
         input = args.input
         inode_info = args.inode_info
+        ubi_offset = args.offset
+        ubi_vol_name = args.vol_name
 
         with open(input, "rb") as f:
             data = f.read()
@@ -247,8 +249,9 @@ class CommandLine:
             ubi_instances = self._initialize_ubi_instances(image, True)
 
             for i, ubi in enumerate(ubi_instances):
-                for j, ubi_vol in enumerate(ubi.volumes):
-                    ubifs = UBIFS(ubi_vol)
+                if ubi.peb_offset == ubi_offset and ubi.get_volume(ubi_vol_name) is not None:
+                    vol = ubi.get_volume(ubi_vol_name)
+                    ubifs = UBIFS(vol)
 
                     scanned_inodes = {}
                     scanned_dents = {}
@@ -258,7 +261,10 @@ class CommandLine:
 
                     renderer.render_recoverability_info(image, ubifs, scanned_inodes, scanned_dents, scanned_data_nodes, inode_info=inode_info)
 
+                    return
 
+            ubiftlog.error(
+                f"[-] UBI Volume {ubi_vol_name} could not be found. Use 'mtdls' and 'ubils' to determine available UBI instances and their volumes.")
 
 
 
