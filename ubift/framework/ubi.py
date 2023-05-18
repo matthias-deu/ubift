@@ -121,7 +121,7 @@ class UBI:
 
         if VTBL_VOLUME_ID not in volume_table:
             ubiftlog.error(
-                f"[-] There is no 'layout volume' in the UBI instance, therefore UBI volumes cannot be parsed correctly.")
+                f"[-] Cannot find 'layout volume' in the UBI instance, therefore UBI volumes cannot be parsed correctly. Maybe an invalid OOB size has been specified?")
         else:
             self._parse_vtbl_records(volume_table)
 
