@@ -378,6 +378,7 @@ class CommandLine:
                         if inode_num in inodes: # This file is in the file index, so ignore it here.
                             continue
                         # TODO: maybe restore full path instead of putting everything into the recovered-folder
+                        # TODO: Skip if not a regular file
                         #full_filepath = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
                         #os.makedirs(os.path.dirname(full_filepath), exist_ok=True)
                         if inode_num not in scanned_data_nodes or len(scanned_data_nodes[inode_num]) == 0:

@@ -31,12 +31,14 @@ class CommandLine:
         create.add_argument("--size", "-s", choices=[256], default=256, help="Size in MiB of the image dump.", type=int)
         create.add_argument("--contentfolder", "-cf", help="Directory of files that will be written to the image dump.",
                             required=True)
-        create.add_argument("--ubi-instances", "-ubis", help="Amount of UBI instances in the image dump.", default=1, type=int)
-        create.add_argument("--ubi-volumes", "-vols", help="Maximum amount of UBI volumes per instance (randomized)",
-                            default=1, type=int)
+        create.add_argument("--lebs", "-lebs", help="Maximum amount of LEBs for the UBIFS instance.",
+                            required=True, type=int, default=300)
+        # TODO: Allow specifiying multiple amount of Volumes to be created
+        #create.add_argument("--ubi-volumes", "-vols", help="Amount of UBI volumes per instance",
+        #                    default=1, type=int)
         create.add_argument("--force", "-f", help="Unloads kernel modules 'ubi', 'ubifs' and 'nandsim' before running.", default=False, action="store_true")
         create.add_argument("--file-count", "-fc",
-                            help="Amount of files that will be written to UBI volumes.", default=100)
+                            help="Amount of files that will be written to UBI volumes.", default=100, type=int)
         create.set_defaults(func=self._create)
 
         # mount
@@ -51,7 +53,7 @@ class CommandLine:
                             required=True)
         simulate.add_argument("--mount", "-m", help="Where the UBIFS file system is mounted, e.g., /mnt", required=True)
         simulate.add_argument("--count", "-c", help="Amount of operations on files (erases, creations etc)",
-                            default=800)
+                            default=800, type=int)
         simulate.add_argument("--dump", "-d", help="If set to a path, will create a dump of the UBIFS file system via nanddump (without OOB).", type=str)
         simulate.set_defaults(func=self._simulate)
 
@@ -74,7 +76,7 @@ class CommandLine:
                 random_file = random.choice(os.listdir(cf))
                 random_dest = random.choice(os.listdir(mountpoint))
                 shutil.copy(os.path.join(cf, random_file), os.path.join(mountpoint, random_dest))
-                #self._execute_command(["sync", "-f", os.path.join(mountpoint, random_dest, random_file)])
+                self._execute_command(["sync", "-f", os.path.join(mountpoint, random_dest, random_file)])
                 rootlog.info(f"[!] [{i+1}/{ops}] Copying file: {os.path.join(cf, random_file)} to {os.path.join(mountpoint, random_dest)}")
             else:
                 # Delete random file in UBIFS
@@ -110,10 +112,10 @@ class CommandLine:
         parts = self._create_parts_string(ubi_instances, peb_count)
         self._nandsim(256, parts)
 
-        ubiformat = ["ubiformat", f"/dev/mtd{mtdn}", "-f", image_path]
+        ubiformat = ["ubiformat", f"/dev/mtd{mtdn}", "-f", image_path, "--vid-hdr-offset", "2048"]
         print(self._execute_command(ubiformat))
 
-        ubiattach = ["ubiattach", "/dev/ubi_ctrl", "-m", str(mtdn)]
+        ubiattach = ["ubiattach", "/dev/ubi_ctrl", "-m", str(mtdn), "--vid-hdr-offset", "2048"]
         print(self._execute_command(ubiattach))
 
         mount = ["mount", "-t", "ubifs", "-o", "sync", "/dev/ubi0_0", "/mnt"]
@@ -129,7 +131,7 @@ class CommandLine:
             rootlog.error(f"[-] There are already MTD devices. Please remove them before running the 'create' command. Alternativly, use --force.")
             exit(1)
 
-        ubi_instances = args.ubi_instances
+        ubi_instances = 1
         peb_count = 2048
         parts = self._create_parts_string(ubi_instances, peb_count)
 
@@ -149,11 +151,12 @@ class CommandLine:
         self._execute_command(["modprobe", "ubi"])
         self._execute_command(["modprobe", "ubifs"])
 
-        mkfs_cmd = ["mkfs.ubifs", "-r", "/tmp/vol0", "-m", "2048", "-e", "129024", "-c", "300", "-o", "/tmp/vol0.ubifs"]
+        max_leb_cnt = args.lebs
+        mkfs_cmd = ["mkfs.ubifs", "-r", "/tmp/vol0", "-m", "2048", "-e", "126976", "-c", str(max_leb_cnt), "-o", "/tmp/vol0.ubifs"]
+        print(f"[+] Creating UBIFS with max. LEB count of {max_leb_cnt} ({max_leb_cnt * 129024 / 1024 / 1024}MiB)")
         print(self._execute_command(mkfs_cmd))
 
-        # nand flash that will be created with nand sim supports subpages therefore set -s to 512
-        ubinize_cmd = ["ubinize", "-o", "/tmp/vol0.ubi", "-m", "2048", "-s", "512", "-p", "128KiB", "./test.cfg"]
+        ubinize_cmd = ["ubinize", "-o", "/tmp/vol0.ubi", "-m", "2048", "-s", "2048", "-p", "128KiB", "--verbose", "./test.cfg"]
         print(self._execute_command(ubinize_cmd))
 
         rootlog.info(f"[!] Cleaning tmp files.")
@@ -171,7 +174,9 @@ class CommandLine:
 
     def _nandsim(self, size: int, parts: str) -> str:
         if size == 256:
-            cmd = ["modprobe", "nandsim", "first_id_byte=0x2c", "second_id_byte=0xda", "third_id_byte=0x90", "fourth_id_byte=0x95"]
+            #512 cmd = ["modprobe", "nandsim", "first_id_byte=0x2c", "second_id_byte=0xda", "third_id_byte=0x90", "fourth_id_byte=0x95"]
+            cmd = ["modprobe", "nandsim", "first_id_byte=0x20", "second_id_byte=0xaa", "third_id_byte=0x00",
+                   "fourth_id_byte=0x15"]
             if parts is not None and len(parts) > 0:
                 cmd = cmd + [f"parts={parts}"]
             return self._execute_command(subprocess.list2cmdline(cmd), shell=True)

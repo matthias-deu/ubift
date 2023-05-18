@@ -12,6 +12,7 @@ from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_T
     UBIFS_DATA_NODE, UBIFS_KEY_TYPES
 from ubift.framework.ubi import UBIVolume
 from ubift.framework.ubifs import UBIFS
+from ubift.framework.util import crc32
 from ubift.logging import ubiftlog
 
 
@@ -57,15 +58,18 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     :param outfd: Where to output everything
     :return:
     """
-    outfd.write(f"Deleted Inodes found: {len([inode for inode in scanned_inodes.values() if inode.nlink == 0])}\n")
-
+    deleted_inodes = 0
     total_size = 0
     total_recoverable = 0
 
     if inode_info:
         outfd.write("Inode\t\tSize\t\t\tRecoverable\t\t%\n")
     for inum, inode in scanned_inodes.items():
+        if (inode.ch.crc != crc32(inode.pack()[8:])):
+            ubiftlog.info(f"[!] CRC in common header of inode {inum} does not match CRC of its contents.")
+            continue
         if inode.nlink == 0:
+            deleted_inodes += 1
             size = inode.ino_size
             recoverable = min(len(scanned_data_nodes[inum]) * 4096, size) if inum in scanned_data_nodes else 0
             total_size += size
@@ -73,6 +77,7 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
             if inode_info:
                 outfd.write(f"{zpad(inum, 6)}\t\t{zpad(inode.ino_size, 13)}\t\t{zpad(recoverable, 13)}\t\t{'{:.0%}'.format(recoverable / inode.ino_size)}\n")
 
+    outfd.write(f"Deleted Inodes found: {deleted_inodes}\n")
     outfd.write(f"Accumulated Deleted Inode Size: {total_size} ({readable_size(total_size)})\n")
     percentage = "0%" if total_size == 0 else '{:.0%}'.format(total_recoverable / total_size)
     outfd.write(f"Total Recoverable Bytes: {total_recoverable} ({readable_size(total_recoverable)}) => {percentage}\n")
@@ -108,6 +113,9 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
         outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size\n")
     for inum, inode in inodes.items():
         if deleted and inode.nlink != 0:
+            continue
+        if (inode.ch.crc != crc32(inode.pack()[8:])):
+            ubiftlog.info(f"[!] CRC in common header of inode {inum} does not match CRC of its contents.")
             continue
         uid = inode.uid
         gid = inode.gid
