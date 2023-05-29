@@ -686,7 +686,7 @@ class CommandLine:
         do_scan = args.scan
         master_node_index = args.master
         deleted = args.deleted
-        xentries = args.xentries
+        output_xentries = args.xentries
 
         mtd = self._initialize_mtd(args)
         mtd.partitions = UBIPartitioner().partition(mtd, fill_partitions=False)
@@ -707,7 +707,7 @@ class CommandLine:
             ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_xent_collector_visitor, inodes=inodes,
                             dents=dents, xentries=xentries)
 
-        if xentries:
+        if output_xentries:
             render_xents(ubifs, xentries)
         else:
             render_dents(ubifs, dents, use_full_paths, deleted=deleted)

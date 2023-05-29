@@ -10,7 +10,7 @@ from ubift.framework import ubifs
 from ubift.framework.mtd import Image
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
 from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_TYPES, UBIFS_INO_NODE, UBIFS_KEY, \
-    UBIFS_DATA_NODE, UBIFS_KEY_TYPES
+    UBIFS_DATA_NODE, UBIFS_KEY_TYPES, UBIFS_CH
 from ubift.framework.ubi import UBIVolume
 from ubift.framework.ubifs import UBIFS
 from ubift.framework.util import crc32
@@ -66,17 +66,19 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     deleted_inodes = 0
     total_size = 0
     total_recoverable = 0
+    total_data_len = 0
 
     if inode_info:
         outfd.write("Inode\t\tSize\t\t\tRecoverable\t\t%\n")
     for inum, inode in scanned_inodes.items():
-        if (inode.ch.crc != crc32(inode.pack()[8:])):
-            ubiftlog.info(f"[!] CRC in common header of inode {inum} does not match CRC of its contents.")
+        if (inode.ch.crc != crc32(inode.pack()[8:inode.ch.len])):
+            ubiftlog.info(f"[!] CRC32 in common header of inode {inum} does not match CRC32 of its contents.")
             continue
         if inode.nlink == 0:
             deleted_inodes += 1
             size = inode.ino_size
             recoverable = min(len(scanned_data_nodes[inum]) * 4096, size) if inum in scanned_data_nodes else 0
+            total_data_len += inode.data_len
             total_size += size
             total_recoverable += recoverable
             if inode_info:
@@ -85,7 +87,8 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     outfd.write(f"Deleted Inodes found: {deleted_inodes}\n")
     outfd.write(f"Accumulated Deleted Inode Size: {total_size} ({readable_size(total_size)})\n")
     percentage = "0%" if total_size == 0 else '{:.0%}'.format(total_recoverable / total_size)
-    outfd.write(f"Total Recoverable Bytes: {total_recoverable} ({readable_size(total_recoverable)}) => {percentage}\n")
+    outfd.write(f"Total Recoverable Bytes from Data Nodes: {total_recoverable} ({readable_size(total_recoverable)}) => {percentage}\n")
+    outfd.write(f"Accumulated data_len fields (used for xattr): {readable_size(total_data_len)}\n")
 
     fs_size = ubifs.superblock.leb_cnt * ubifs.superblock.leb_size
     outfd.write(f"File System Size: {fs_size} ({readable_size(fs_size)})\n")
@@ -119,7 +122,7 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
     for inum, inode in inodes.items():
         if deleted and inode.nlink != 0:
             continue
-        if (inode.ch.crc != crc32(inode.pack()[8:])):
+        if (inode.ch.crc != crc32(inode.pack()[8:inode.ch.len])):
             ubiftlog.info(f"[!] CRC in common header of inode {inum} does not match CRC of its contents.")
             continue
         uid = inode.uid

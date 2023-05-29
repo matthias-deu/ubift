@@ -494,7 +494,7 @@ class UBIFS_DENT_NODE(MemCStructExt):
         Prints the name of the directory entry by concatenating the hex values and decoding them
         @return:
         """
-        formatted_name = [f"{x:x}" for x in list(self.name)]
+        formatted_name = [f"{x:x}" for x in list(self.name)] # TODO: Apprently this does not work if the last integer is a "0" ? Causes the hex string to miss a trailing 0
         formatted_name = "".join(formatted_name)
         return bytearray.fromhex(formatted_name).decode(errors="ignore")
 
