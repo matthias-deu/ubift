@@ -1,7 +1,7 @@
 # This file provides several compression functions that are needed for UBIFS, since it provides on-the-fly data compression
 # See UBIFS_COMPRESSION_TYPE in ubifs_structs.py for possible types
 import zlib
-import zstd
+import zstandard
 import lzo
 
 from ubift import exception
@@ -21,6 +21,6 @@ def decompress(data: bytes, compr_type: int, size: int = None) -> bytes:
     elif compr_type == 2: # UBIFS_COMPRESSION_TYPE.UBIFS_COMPR_ZLIB
         return zlib.decompress(data, -zlib.MAX_WBITS)
     elif compr_type == 3: # UBIFS_COMPRESSION_TYPE.UBIFS_COMPR_ZSTD
-        return zstd.decompress(data)
+        return zstandard.decompress(data, size)
     else:
         raise exception.UBIFTException(f"Data is compressed with unknown type. ({compr_type})")

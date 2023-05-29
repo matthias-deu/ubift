@@ -59,6 +59,10 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     :param outfd: Where to output everything
     :return:
     """
+    if ubifs.superblock is None or ubifs._used_masternode is None or (isinstance(ubifs._used_masternode, list) and len(ubifs._used_masternode) == 0):
+        ubiftlog.error(f"[-] Cannot execute ubift_info because either there is no superblock node or no master node.\n")
+        return
+
     deleted_inodes = 0
     total_size = 0
     total_recoverable = 0
@@ -86,7 +90,7 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     fs_size = ubifs.superblock.leb_cnt * ubifs.superblock.leb_size
     outfd.write(f"File System Size: {fs_size} ({readable_size(fs_size)})\n")
 
-    master_node = ubifs._used_masternode
+    # master_node = ubifs._used_masternode
     # total is equal to fs_size
     # total = master_node.total_free + master_node.total_dirty + master_node.total_used + master_node.total_dead + master_node.total_dark
     attrs = {"total_free": "Free Space", "total_dirty": "Dirty Space",
@@ -141,6 +145,16 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
         mode = inode.mode if not human_readable else f"{InodeMode(inode.mode).file_type}|{InodeMode(inode.mode).full_perm}"
         nlink = inode.nlink
         size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
+
+        # if inum == 1:
+        #     if inode.flags & 0x20: # this inode is the inode for an extended attribute value
+        #         print("data_len:" + str(inode.data_len))
+        #         pass
+        #     print("xattr_cnt:" + str(inode.xattr_cnt))
+        #     print("xattr_size:" + str(inode.xattr_size))
+        #     print("xattr_names:" + str(inode.xattr_names))
+        #     exit()
+
 
         if datanodes is not None and dents is not None:
             datanode_count = 0 if inum not in datanodes else len(datanodes[inum])
@@ -408,6 +422,30 @@ def render_inode_node(ubifs: UBIFS, inode: int, inode_node: UBIFS_INO_NODE, outf
     for field in inode_node.__fields__:
         print(f"{field}: {getattr(inode_node, field)}")
 
+
+def render_xents(ubifs: UBIFS, xents: Dict[int, UBIFS_DENT_NODE], outfd=sys.stdout):
+    """
+    Renders xentries (specific dent nodes used for extended attributes)
+    :param ubifs:
+    :param xents:
+    :return:
+    """
+    xent_list = xents.values() if isinstance(xents, Dict) else xents
+
+    outfd.write("Xattr Inode Number\tHost Inode Number\tXattr Name\n")
+    for xent in xent_list:
+        # TODO: This method supports Dict[int, UBIFS_DENT_NODE] and Dict[int, list[UBIFS_DENT_NODE]] therefore this is needed but maybe it can be implemented in a better way
+        if isinstance(xent, list):
+            for dent2 in xent:
+                outfd.write(f"{dent2.inum}")
+                outfd.write(f"\t\t\t{UBIFS_KEY.from_bytearray(dent2.key).inode_num}\t\t\t")
+                outfd.write(f"{dent2.formatted_name()}")
+                outfd.write("\n")
+        else:
+            outfd.write(f"{xent.inum}")
+            outfd.write(f"\t\t\t{UBIFS_KEY.from_bytearray(xent.key).inode_num}\t\t\t")
+            outfd.write(f"{xent.formatted_name()}")
+            outfd.write("\n")
 
 def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout, deleted:bool = False) -> None:
     """

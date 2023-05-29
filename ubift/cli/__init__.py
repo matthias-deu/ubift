@@ -3,16 +3,16 @@ import errno
 import logging
 import os
 import sys
-from typing import Any, List
+from typing import List
+import codecs
 
 from ubift import exception
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
-    render_data_nodes, render_inode_list, write_to_file
+    render_data_nodes, render_inode_list, write_to_file, render_xents
 from ubift.framework import visitor
-from ubift.framework.mtd import Image, Partition
+from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
-from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES, UBIFS_INODE_TYPES, UBIFS_MST_NODE, \
-    UBIFS_CH
+from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES, UBIFS_INODE_TYPES, UBIFS_DENT_NODE, UBIFS_INO_NODE
 from ubift.framework.ubi import UBI, UBIVolume
 from ubift.framework.ubifs import UBIFS
 from ubift.logging import ubiftlog
@@ -87,6 +87,7 @@ class CommandLine:
         self.add_default_mtd_args(fls)
         fls.add_argument("--path", "-p", help="If set, will output full paths for every file.", default=False,
                          action="store_true")
+        fls.add_argument("--xentries", "-x", help="If set, will output xentries (extended attribute entries).", default=False, action="store_true")
         fls.add_argument("--scan", "-s",
                          help="If set, will perform scanning for signatures instead of traversing the file-index.",
                          default=False, action="store_true")
@@ -371,8 +372,9 @@ class CommandLine:
                 inodes = {}
                 dents = {}
                 data = {}
-                ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_data_collector_visitor, inodes=inodes,
-                                dents=dents, data=data)
+                if hasattr(ubifs, "_root_idx_node"): # TODO: Temporary fix if there are no master nodes
+                    ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_data_collector_visitor, inodes=inodes,
+                                    dents=dents, data=data)
 
                 if deleted:
                     scanned_inodes = {}
@@ -508,10 +510,57 @@ class CommandLine:
         if node == None or inode_node_key != UBIFS_KEY(bytes(node.key[:8])):
             rootlog.error(
                 f"[-] Inode {inode_num} could not be found.")
-            return
         else:
             render_inode_node(ubifs, inode_num, node)
-            return
+
+            xattrs = self._get_xattrs(ubifs, inode_num, do_scan=do_scan)
+            if len(xattrs) > 0:
+                ubiftlog.info(f"[+] Found {len(xattrs)} extended attributes for inode {inode_num}")
+                sys.stdout.write(f"Extended Attributes:\n")
+                for xent, xent_inode in xattrs:
+                    xent_data = [f"{x:x}" for x in list(xent_inode.data)]
+                    xent_data = "".join(xent_data)
+                    try:
+                        u = bytearray(xent_inode.data).hex()
+                        b = codecs.decode(u, "hex")
+                        result = b.decode("ascii", errors="ignore")
+                    except:
+                        result = ""
+                    sys.stdout.write(f"{xent.formatted_name()} --> {xent_data} ({result})\n")
+
+    def _get_xattrs(self, ubifs: UBIFS, inode_num: int, do_scan: bool) -> list[tuple[UBIFS_DENT_NODE, UBIFS_INO_NODE]]:
+        """
+        Fetches all extended attributes for a given inode.
+        Right now this is done in a 'complicated' way by first fetching all UBIFS_DENT_NODE nodes with a key_type of UBIFS_XENT_KEY
+        Then all inodes of those specific UBIFS_DENT_NODES are fetched
+        :param ubifs:
+        :param inode_num:
+        :return: A dictionary of xent nodes (UBIFS_DENT_NODE with specific key) mapping to inodes representing the extended attributes
+        """
+        if do_scan:
+            dents = {}
+            xentries = {}
+            ubifs._scan_lebs(visitor._dent_xent_scan_leb_visitor, dents=dents, xentries=xentries)
+        else:
+            inodes = {}
+            dents = {}
+            xentries = {}
+            ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_xent_collector_visitor, inodes=inodes,
+                            dents=dents, xentries=xentries)
+        xents = []
+        for k,v in xentries.items():
+            for xent in v:
+                host_inum = UBIFS_KEY.from_bytearray(xent.key).inode_num
+                if host_inum == inode_num:
+                    if do_scan:
+                        xents.append((xent, inodes[xent.inum] if xent.inum in inodes else None))
+                    else:
+                        inode_node_xent_key = UBIFS_KEY.create_key(xent.inum, UBIFS_KEY_TYPES.UBIFS_INO_KEY, 0)
+                        xent_inode = ubifs._find(ubifs._root_idx_node, inode_node_xent_key)
+                        xents.append((xent, xent_inode))
+
+        return xents
+
 
     def ils(self, args) -> None:
         """
@@ -637,6 +686,7 @@ class CommandLine:
         do_scan = args.scan
         master_node_index = args.master
         deleted = args.deleted
+        xentries = args.xentries
 
         mtd = self._initialize_mtd(args)
         mtd.partitions = UBIPartitioner().partition(mtd, fill_partitions=False)
@@ -648,14 +698,19 @@ class CommandLine:
         # TODO: Maybe traverse etc shouldnt be protected functions
         if do_scan or deleted:
             dents = {}
-            ubifs._scan_lebs(visitor._dent_scan_leb_visitor, dents=dents)
-            render_dents(ubifs, dents, use_full_paths, deleted=deleted)
+            xentries = {}
+            ubifs._scan_lebs(visitor._dent_xent_scan_leb_visitor, dents=dents, xentries=xentries)
         else:
             inodes = {}
             dents = {}
-            ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
-                            dents=dents)
-            render_dents(ubifs, dents, use_full_paths)
+            xentries = {}
+            ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_xent_collector_visitor, inodes=inodes,
+                            dents=dents, xentries=xentries)
+
+        if xentries:
+            render_xents(ubifs, xentries)
+        else:
+            render_dents(ubifs, dents, use_full_paths, deleted=deleted)
 
     def lebcat(self, args) -> None:
         """

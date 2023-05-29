@@ -118,6 +118,7 @@ class UBI:
                     volume_table[leb.vid_hdr.vol_id].append(leb)
 
         # TODO: Should this also create volumes from internal volumes such as the layout volume and fastmap volumes?
+        # TODO: Parse fastmap
 
         if VTBL_VOLUME_ID not in volume_table:
             ubiftlog.error(

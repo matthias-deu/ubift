@@ -416,6 +416,20 @@ class UBIFS_TRUN_NODE(MemCStructExt):
 
 
 class UBIFS_INO_NODE(MemCStructExt):
+    def __init__(self, data=None, offset=None, *args, **kwargs):
+        """
+        Creates an instance of a UBIFS_DENT_NODE. Automatically parses its name based on name_len.
+        :param data:
+        :param offset:
+        :param args:
+        :param kwargs:
+        """
+        data_len_offs = offset + UBIFS_CH.size + 16 + (5 * 8) + (8 * 4)
+        data_len = struct.unpack("<I", data[data_len_offs:data_len_offs + 4])[0]
+        if data_len is not None and data_len > 0:
+            self.set_flexible_array_length(data_len)
+        super().__init__(data, offset, *args, **kwargs)
+
     __byte_order__ = LITTLE_ENDIAN
     __def__ = COMMON_TYPEDEFS + """
         struct ubifs_ino_node {

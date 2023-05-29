@@ -24,6 +24,21 @@ def _dent_scan_leb_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_off
         else:
             dents[dent_node.inum] = [dent_node]
 
+def _dent_xent_scan_leb_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int,
+                           dents: dict[int, list[UBIFS_DENT_NODE]], xentries: dict[int, list[UBIFS_DENT_NODE]], **kwargs):
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_XENT_NODE:
+        xent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        if xent_node.inum in xentries:
+            xentries[xent_node.inum].append(xent_node)
+        else:
+            xentries[xent_node.inum] = [xent_node]
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        if dent_node.inum in dents:
+            dents[dent_node.inum].append(dent_node)
+        else:
+            dents[dent_node.inum] = [dent_node]
+
 def _all_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
                                   dents: dict[int, list], datanodes: dict[int, list], **kwargs) -> None:
     """
@@ -71,6 +86,36 @@ def _inode_dent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, 
         key = UBIFS_KEY(bytes(inode_node.key[:8]))
         inodes[key.inode_num] = inode_node
 
+def _inode_dent_xent_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
+                                  dents: dict[int, list], xentries: dict[int, list],
+                                  **kwargs) -> None:
+    """
+    A Visitor that collects all nodes of types UBIFS_DENT_NODE, UBIFS_XENT_NODE and UBIFS_INO_NODE and stores them in the dicts 'inodes' and 'dents'
+    :param ch_hdr: Will be provided by _traverse-function
+    :param leb_num: Will be provided by _traverse-function
+    :param leb_offs: Will be provided by _traverse-function
+    :param inodes: Collected nodes of type UBIFS_INO_NODE
+    :param dents: Collected nodes of type UBIFS_DENT_NODE
+    :param dents: Collected nodes of type UBIFS_XENT_NODE
+    :param kwargs:
+    :return:
+    """
+    if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_XENT_NODE:
+        xent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        if xent_node.inum in xentries:
+            xentries[xent_node.inum].append(xent_node)
+        else:
+            xentries[xent_node.inum] = [xent_node]
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
+        dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        if dent_node.inum in dents:
+            dents[dent_node.inum].append(dent_node)
+        else:
+            dents[dent_node.inum] = [dent_node]
+    elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_INO_NODE:
+        inode_node = UBIFS_INO_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
+        key = UBIFS_KEY(bytes(inode_node.key[:8]))
+        inodes[key.inode_num] = inode_node
 
 def _inode_dent_data_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict[int, UBIFS_INO_NODE],
                                        dents: dict[int, list], data: dict[int, list], **kwargs) -> None:
