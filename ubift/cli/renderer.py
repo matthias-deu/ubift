@@ -1,3 +1,4 @@
+import errno
 import logging
 import os
 import sys
@@ -119,12 +120,24 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
             continue
         uid = inode.uid
         gid = inode.gid
-        mtime = inode.mtime_sec if not human_readable else datetime.utcfromtimestamp(inode.mtime_sec).strftime(
-            "%Y-%m-%d %H:%M:%S")
-        atime = inode.atime_sec if not human_readable else datetime.utcfromtimestamp(inode.atime_sec).strftime(
-            "%Y-%m-%d %H:%M:%S")
-        ctime = inode.ctime_sec if not human_readable else datetime.utcfromtimestamp(inode.ctime_sec).strftime(
-            "%Y-%m-%d %H:%M:%S")
+        try:
+            mtime = inode.mtime_sec if not human_readable else datetime.utcfromtimestamp(inode.mtime_sec).strftime(
+                "%Y-%m-%d %H:%M:%S")
+        except:
+            mtime = inode.mtime_sec
+
+        try:
+            atime = inode.atime_sec if not human_readable else datetime.utcfromtimestamp(inode.atime_sec).strftime(
+                "%Y-%m-%d %H:%M:%S")
+        except:
+            atime = inode.atime_sec
+
+        try:
+            ctime = inode.ctime_sec if not human_readable else datetime.utcfromtimestamp(inode.ctime_sec).strftime(
+                "%Y-%m-%d %H:%M:%S")
+        except:
+            ctime = inode.ctime_sec
+
         mode = inode.mode if not human_readable else f"{InodeMode(inode.mode).file_type}|{InodeMode(inode.mode).full_perm}"
         nlink = inode.nlink
         size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
@@ -229,7 +242,7 @@ def render_ubi_instances(image: Image, outfd=sys.stdout) -> None:
         if partition.ubi_instance is not None:
             ubi_instances.append(partition.ubi_instance)
 
-    outfd.write(f"UBI Instances: {len(ubi_instances)}\n\n")
+    # outfd.write(f"UBI Instances: {len(ubi_instances)}\n\n")
 
     outfd.write(f"Units are in {readable_size(image.block_size)}-Erase Blocks\n")
     for i, ubi in enumerate(ubi_instances):
@@ -261,7 +274,7 @@ def render_lebs(vol: UBIVolume, outfd=sys.stdout):
     :param outfd:
     :return:
     """
-    outfd.write(f"UBI Volume Index:{vol._vol_num} Name:{vol.name}\n\n")
+    # outfd.write(f"UBI Volume Index:{vol._vol_num} Name:{vol.name}\n\n")
 
     outfd.write("LEB\t--->\tPEB\n")
 
@@ -327,7 +340,7 @@ def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_
     ubiftlog.info(f"[+] Found {len(data_nodes)} data nodes for inode number {inode_num}.")
 
     if data_nodes is None or len(data_nodes) == 0:
-        ubiftlog.error(f"[-] No data nodes for inode number {inode_num} could not be found.")
+        ubiftlog.error(f"[-] No data nodes for inode number {inode_num} could be found.")
         return
     else:
         with tempfile.TemporaryFile(mode="w+b") as temp_file:
@@ -359,7 +372,11 @@ def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_
 
             # Write data to disk or to stdout
             temp_file.seek(0)
-            outfd.buffer.write(temp_file.read())
+            try:
+                outfd.buffer.write(temp_file.read())
+            except IOError as e:
+                if e.errno == errno.EPIPE:
+                    pass
             ubiftlog.info(f"[+] Wrote {accu_size} bytes from data nodes for inum {inode_num}")
 
             temp_file.close()

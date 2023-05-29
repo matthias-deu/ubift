@@ -139,10 +139,11 @@ class UBI:
 
     def _create_volume(self, vol_num: int, vtbl_record: UBI_VTBL_RECORD,
                        block_table: dict[int, List[LEB]]) -> UBIVolume:
-        vol = UBIVolume(self, vol_num, block_table[vol_num], vtbl_record)
+        volume_blocks = block_table[vol_num] if vol_num in block_table else []
+        vol = UBIVolume(self, vol_num, volume_blocks, vtbl_record)
 
         ubiftlog.info(
-            f"[+] Created UBI Volume '{vol.name}' (vol_num: {vol_num}, PEBs: {len(block_table[vol_num])}).")
+            f"[+] Created UBI Volume '{vol.name}' (vol_num: {vol_num}, LEBs: {len(volume_blocks)}).")
 
         return vol
 
@@ -182,8 +183,22 @@ class LEB():
 
     @property
     def data(self):
+        """
+        :return: Returns only the data of the LEB, excluding the headers.
+        """
         image = self._ubi_instance.partition.image
         data = image.data
         start = self._ubi_instance.partition.offset + self._ubi_instance.offset + self._peb_num * image.block_size
         start += self.ec_hdr.data_offset
         return data[start:start + image.block_size - self.ec_hdr.data_offset]
+
+    @property
+    def peb(self):
+        """
+        :return: Returns the full data of the LEB, including the headers and not only the data.
+        """
+        image = self._ubi_instance.partition.image
+        data = image.data
+        start = self._ubi_instance.partition.offset + self._ubi_instance.offset + self._peb_num * image.block_size
+        end = start + image.block_size
+        return data[start:end]

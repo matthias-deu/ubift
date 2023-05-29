@@ -138,22 +138,35 @@ class UBIFS:
     def __init__(self, ubi_volume: UBIVolume, masternode_index: int = -1):
         self._ubi_volume = ubi_volume
         self.masternode_index = masternode_index
-        self.superblock = UBIFS_SB_NODE(self.ubi_volume.lebs[0].data, 0)
+        self.superblock = self._parse_superblock_node()
         self.masternodes = self._parse_master_nodes()
-        self._used_masternode = self.masternodes[0][self.masternode_index]
-        self._root_idx_node = self._parse_root_idx_node(self._used_masternode)
-        self.orphan_nodes = self._parse_orphan_nodes()
+        if len(self.masternodes[0]) - 1 >= self.masternode_index:
+            self._used_masternode = self.masternodes[0][self.masternode_index]
+            self._root_idx_node = self._parse_root_idx_node(self._used_masternode)
+            self.orphan_nodes = self._parse_orphan_nodes()
+            ubiftlog.info(
+                f"[!] Using masternode {self.masternode_index} seqnum: {self._used_masternode.ch.sqnum}, log LEB: {self._used_masternode.log_lnum}")
+            self.journal = Journal(self, self._used_masternode.log_lnum)
 
-        ubiftlog.info(
-            f"[!] Using masternode {self.masternode_index} seqnum: {self._used_masternode.ch.sqnum}, log LEB: {self._used_masternode.log_lnum}")
+            if not self._validate():
+                raise exception.UBIFTException(f"[-] Invalid UBIFS instance for {self._ubi_volume}")
 
-        self.journal = Journal(self, self._used_masternode.log_lnum)
+            ubiftlog.info(f"[!] Initialized UBIFS instance for {self._ubi_volume}")
+        else:
+            self._used_masternode = []
 
-        if not self._validate():
-            raise exception.UBIFTException(f"[-] Invalid UBIFS instance for {self._ubi_volume}")
 
-        ubiftlog.info(f"[!] Initialized UBIFS instance for {self._ubi_volume}")
+    def _parse_superblock_node(self) -> UBIFS_SB_NODE:
+        """
+        Parses the Superblock node which resides in LEB 0
+        :return: Instance of UBIFS_SB_NODE or None if it could not be parsed
+        """
+        if 0 not in self.ubi_volume.lebs:
+            ubiftlog.error(
+                f"[-] LEB 0 which contains the Superblock node is not mapped, therefore Superblock node cannot be parsed.")
+            return None
 
+        return UBIFS_SB_NODE(self.ubi_volume.lebs[0].data, 0)
 
     def _parse_orphan_nodes(self) -> list[UBIFS_ORPH_NODE]:
         """
@@ -190,7 +203,7 @@ class UBIFS:
         if self.masternode_index is None or self.masternode_index < 0:
             self.masternode_index = 0
         if self.masternode_index >= len(masternodes[0]):
-            raise exception.UBIFTException(
+            ubiftlog.error(
                 f"[-] Invalid master node index ({self.masternode_index}). There are only {len(masternodes[0])} master nodes in UBIFS instance for UBI volume {self._ubi_volume}")
 
         return masternodes
@@ -202,6 +215,11 @@ class UBIFS:
         :param leb_num:
         :return: List of all found master nodes in a given LEB, sorted by sequence number (highest number first)
         """
+        if leb_num not in self.ubi_volume.lebs:
+            ubiftlog.error(
+                f"[-] Cannot parse master nodes in LEB {leb_num} because it is not mapped.")
+            return []
+
         mst_nodes = []
         leb_data = self.ubi_volume.lebs[leb_num].data
         ch_hdr_sig = "\x31\x18\x10\x06".encode("utf-8")
@@ -461,18 +479,20 @@ class UBIFS:
             if idx_node is not None:
                 self._traverse(idx_node, traversal_function, **kwargs)
 
-            ch_hdr = UBIFS_CH(self.ubi_volume.lebs[branch.lnum].data, branch.offs) if idx_node is None else idx_node.ch
-            if ch_hdr is not None:
-                traversal_function(self, ch_hdr, branch.lnum, branch.offs, **kwargs)
+            if branch.lnum in self.ubi_volume.lebs:
+                ch_hdr = UBIFS_CH(self.ubi_volume.lebs[branch.lnum].data, branch.offs) if idx_node is None else idx_node.ch
+                if ch_hdr is not None:
+                    traversal_function(self, ch_hdr, branch.lnum, branch.offs, **kwargs)
 
         last_branch = node.branches[-1]
         idx_node = self._create_idx_node(last_branch)
         if idx_node is not None:
            self._traverse(idx_node, traversal_function, **kwargs)
 
-        ch_hdr = UBIFS_CH(self.ubi_volume.lebs[last_branch.lnum].data, last_branch.offs) if idx_node is None else idx_node.ch
-        if ch_hdr is not None:
-            traversal_function(self, ch_hdr, last_branch.lnum, last_branch.offs, **kwargs)
+        if last_branch.lnum in self.ubi_volume.lebs:
+            ch_hdr = UBIFS_CH(self.ubi_volume.lebs[last_branch.lnum].data, last_branch.offs) if idx_node is None else idx_node.ch
+            if ch_hdr is not None:
+                traversal_function(self, ch_hdr, last_branch.lnum, last_branch.offs, **kwargs)
 
     def _create_idx_node(self, branch: UBIFS_BRANCH) -> UBIFS_IDX_NODE:
         """

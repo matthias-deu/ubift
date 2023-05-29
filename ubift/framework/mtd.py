@@ -71,7 +71,15 @@ class Image:
         ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
         if ec_hdr_offset < 0:
             raise UBIFTException("Block size not specified, cannot guess size neither because no UBI_EC_HDR signatures found.")
-        possible_block_sizes = [i*self.page_size if self.oob_size < 0 else (i*self.page_size+i*self.oob_size) for i in range(1, 512)]
+        possible_block_sizes = [i*self.page_size if self.oob_size < 0 else (i*self.page_size+i*self.oob_size) for i in range(1, 1024)]
+
+        # print(possible_block_sizes)
+        # print(ec_hdr_offset)
+        # a = find_signature(data, UBI_EC_HDR.__magic__, ec_hdr_offset + 1)
+        # print(a)
+        # print(a - ec_hdr_offset)
+        # exit()
+
         for i,block_size in enumerate(possible_block_sizes):
             if data[ec_hdr_offset+block_size:ec_hdr_offset+block_size+4] == UBI_EC_HDR.__magic__:
                 guessed_size = (self.page_size * (i+1))
