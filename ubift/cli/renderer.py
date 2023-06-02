@@ -10,9 +10,9 @@ from ubift.framework import ubifs
 from ubift.framework.mtd import Image
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
 from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_TYPES, UBIFS_INO_NODE, UBIFS_KEY, \
-    UBIFS_DATA_NODE, UBIFS_KEY_TYPES, UBIFS_CH
+    UBIFS_DATA_NODE, UBIFS_KEY_TYPES, UBIFS_CH, UBIFS_JOURNAL_HEADS
 from ubift.framework.ubi import UBIVolume
-from ubift.framework.ubifs import UBIFS
+from ubift.framework.ubifs import UBIFS, Journal
 from ubift.framework.util import crc32
 from ubift.logging import ubiftlog
 
@@ -101,6 +101,34 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
              "total_dark": "Total Dark Space"}
     for k,v in attrs.items():
         outfd.write(f"{v}: {getattr(ubifs._used_masternode, k)} ({readable_size(getattr(ubifs._used_masternode, k))})\n")
+
+def render_journal(image: Image, ubifs: UBIFS, journal: Journal, outfd=sys.stdout) -> None:
+    """
+    Renders the Journal of UBIFS
+    :param image: 
+    :param ubifs: 
+    :param journal: The Journal to render
+    :param outfd: 
+    :return: 
+    """
+    if journal.cs_node is not None:
+        outfd.write(f"Journal contains contains the following commit start node:\n")
+        outfd.write(str(journal.cs_node))
+        outfd.write("\n\n")
+    else:
+        outfd.write(f"Journal contains NO commit start node.\n\n")
+    outfd.write(f"Journal contains {len(journal.ref_nodes)} head(s):\n")
+    for head,nodes in journal.buds.items():
+        if len(nodes) > 0:
+            outfd.write(f"Head '{UBIFS_JOURNAL_HEADS(head)}' ({len(nodes)} nodes):\n")
+            for node in nodes:
+                outfd.write(str(node))
+                outfd.write("\n")
+        else:
+            outfd.write(f"Head '{UBIFS_JOURNAL_HEADS(head)}' but it is empty and therefore contains no nodes.\n")
+        outfd.write("\n")
+
+
 
 def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
                       outfd=sys.stdout, deleted:bool= False, datanodes:dict[int, list]=None , dents:dict[int, list]=None) -> None:

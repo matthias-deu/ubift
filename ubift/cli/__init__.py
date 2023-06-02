@@ -137,6 +137,11 @@ class CommandLine:
                            default=False, action="store_true")
         ffind.set_defaults(func=self.ffind)
 
+        # jls
+        jls = subparsers.add_parser("jls", help="Lists all nodes within the journal.")
+        self.add_default_mtd_args(jls)
+        jls.set_defaults(func=self.jls)
+
         # ubift_recover
         # This command is used by the Autopsy plugin
         ubift_recover = subparsers.add_parser("ubift_recover",
@@ -159,12 +164,12 @@ class CommandLine:
         ubift_info.set_defaults(func=self.ubift_info)
 
         # Adds default arguments such as --offset to all previously defined commands that operate in the UBI layer
-        ubi_layer_commands = [lebls, lebcat, fls, istat, icat, ils, fsstat, ffind, ubift_info]
+        ubi_layer_commands = [lebls, jls, lebcat, fls, istat, icat, ils, fsstat, ffind, ubift_info]
         for command in ubi_layer_commands:
             self.add_default_ubi_args(command)
 
         # Adds default arguments such as --master to all previously defined commands that operate in the UBIFS layer
-        ubifs_layer_commands = [fls, ffind, istat, ils]
+        ubifs_layer_commands = [fls, ffind, istat, ils, jls]
         for command in ubifs_layer_commands:
             self.add_default_ubifs_args(command)
 
@@ -560,6 +565,22 @@ class CommandLine:
                         xents.append((xent, xent_inode))
 
         return xents
+
+    def jls(self, args) -> None:
+        """
+        Lists all nodes within the journal
+        :param args:
+        :return:
+        """
+        CommandLine.verbose(args)
+
+        mtd = self._initialize_mtd(args)
+        mtd.partitions = UBIPartitioner().partition(mtd, fill_partitions=False)
+        ubi = self._initialize_ubi(mtd, args)
+        ubi_vol = self._initialize_ubi_volume(ubi, args)
+        ubifs = UBIFS(ubi_vol)
+
+        renderer.render_journal(mtd, ubifs, ubifs.journal)
 
 
     def ils(self, args) -> None:
