@@ -226,6 +226,10 @@ class CommandLine:
         parser.add_argument("--blocksize",
                             help="Block size in Bytes. If not specified, will try to guess the block size based on UBI headers.",
                             type=int)
+        parser.add_argument("--pebthreshold",
+                            help="Gaps between multiple instances of UBI that fall within the threshold are assumed to belong to the same UBI instance.",
+                            type=int,
+                            default=3)
         parser.add_argument("--verbose", help="Outputs a lot more debug information", default=False,
                             action="store_true")
 
@@ -244,7 +248,13 @@ class CommandLine:
             page_size = args.pagesize if args.pagesize is not None and args.pagesize > 0 else -1
             block_size = args.blocksize if args.blocksize is not None and args.blocksize > 0 else -1
 
-            return Image(data, block_size, page_size, oob_size)
+            mtd = Image(data, block_size, page_size, oob_size)
+
+            peb_threshold = args.pebthreshold
+            if peb_threshold is not None:
+                setattr(mtd, "peb_threshold", peb_threshold)
+
+            return mtd
 
     def _initialize_ubi(self, image: Image, args: argparse.Namespace) -> UBI:
         """

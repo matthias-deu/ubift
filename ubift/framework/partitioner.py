@@ -80,6 +80,9 @@ class UBIPartitioner(Partitioner):
             ubiftlog.error(f"[-] Not a valid Image, cannot partition.")
         ubiftlog.info(f"[!] Trying to partition the Image based on UBI instances.")
 
+        if hasattr(image, "peb_threshold"):
+            self.peb_scan_threshold = image.peb_threshold
+
         partitions = []
 
         partition = self._create_partition(image, 0)
@@ -129,8 +132,8 @@ class UBIPartitioner(Partitioner):
                         volume_lebs[vid_hdr.vol_id].append(vid_hdr.lnum)
 
             current += image.block_size
-        current -= image.block_size * current_gap # remove trailing gaps
-        end = current - 1 # 534773759
+        current -= image.block_size * current_gap # removes trailing gaps
+        end = current - 1
 
         partition = Partition(image, start, end, UBIPARTITIONER_UBI_DESCRIPTION)
 
