@@ -64,7 +64,12 @@ class UBIPartitioner(Partitioner):
     Partitions a raw Image by looking for UBI magic bytes. All parts that
     do not belong to UBI instances are treated as unallocated partitions by this Partitioner.
     """
-    def __init__(self):
+    def __init__(self, peb_scan_threshold: int = 3):
+        """
+        Creates a new instance of class UBIPartitioner
+        :param peb_scan_threshold: Gaps between multiple instances of UBI that fall within the threshold are assumed to belong to the same UBI instance
+        """
+        self.peb_scan_threshold = peb_scan_threshold
         super().__init__()
 
     def partition(self, image: Image, fill_partitions: bool = True) -> List[Partition]:
@@ -99,8 +104,14 @@ class UBIPartitioner(Partitioner):
         # TODO: Check the VID_HDR if the leb num maybe already belongs to a new UBI instance
         volume_lebs = {}
         current = start
-        while image.data[current:current+4] == UBI_EC_HDR.__magic__:
-
+        current_gap = 0
+        while image.data[current:current+4] == UBI_EC_HDR.__magic__ or current_gap <= self.peb_scan_threshold:
+            if image.data[current:current+4] != UBI_EC_HDR.__magic__:
+                current_gap += 1
+                current += image.block_size
+                continue
+            else:
+                current_gap = 0
             # Check if the lnum in the vid_hdr was already seen (is in the volume_lebs dict),
             #   in which case this might already be another UBI instance
             ec_hdr = UBI_EC_HDR(image.data, current)
@@ -118,7 +129,8 @@ class UBIPartitioner(Partitioner):
                         volume_lebs[vid_hdr.vol_id].append(vid_hdr.lnum)
 
             current += image.block_size
-        end = current-1
+        current -= image.block_size * current_gap # remove trailing gaps
+        end = current - 1 # 534773759
 
         partition = Partition(image, start, end, UBIPARTITIONER_UBI_DESCRIPTION)
 

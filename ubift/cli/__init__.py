@@ -6,6 +6,8 @@ import sys
 from typing import List
 import codecs
 
+from pathvalidate import sanitize_filepath
+
 from ubift import exception
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
     render_data_nodes, render_inode_list, write_to_file, render_xents
@@ -393,16 +395,21 @@ class CommandLine:
                         if UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_DIR:
                             full_dir = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
                             rootlog.info(f"[+] Creating directory {full_dir}")
-                            os.makedirs(full_dir, exist_ok=True)
+                            try:
+                                os.makedirs(full_dir, exist_ok=True)
+                            except:
+                                sanitized_path = sanitize_filepath(full_dir)
+                                rootlog.info(f"[!] Sanitizing filepath {full_dir} to {sanitized_path}")
+                                os.makedirs(sanitized_path, exist_ok=True)
                             inode_num = dent.inum
                             if inode_num in inodes:
                                 atime = inodes[inode_num].atime_sec + inodes[inode_num].atime_nsec / 1000000000.0
                                 mtime = inodes[inode_num].mtime_sec + inodes[inode_num].mtime_nsec / 1000000000.0
                                 try:
                                     os.utime(full_dir, (atime, mtime))
-                                    os.chmod(full_dir, inode.mode)
+                                    os.chmod(full_dir, inodes[inode_num].mode)
                                 except:
-                                    pass
+                                    pass # TODO: print verbose warning msg
                         elif UBIFS_INODE_TYPES(dent.type) == UBIFS_INODE_TYPES.UBIFS_ITYPE_REG:
                             inode_num = dent.inum
                             full_filepath = os.path.join(ubi_vol_dir, ubifs._unroll_path(dent, dents))
