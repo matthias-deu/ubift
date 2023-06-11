@@ -82,6 +82,42 @@ zstd~=1.5.4.1
 
 python-lzo>=1.11
 
+# Autopsy Plugin
+
+The project includes an Autopsy Ingest Module which makes UBIFT available in Autopsy. It can be found in the **/autopsy** folder.
+
+### Usage
+
+The Autopsy plugin relies on UBIFT being available as external executable. The executable is not part of this repository for security reasons but nevertheless it can be easily built with **pyInstaller**.
+
+In tests, pyInstaller version **5.10.0** has been used. It can be installed via pip. To build a UBIFT executable the following command can be used:
+
+```python
+pyInstaller --onefile --collect-all ubift ubift
+```
+
+For Windows, this creates a **ubift.exe** which needs to be copied to a new folder within the autopsy plugin folder (usually located at C:\Users\<USER>\AppData\Roaming\autopsy\python_modules).
+
+In summary, a folder such as 
+
+```python
+C:\Users\<USER>\AppData\Roaming\autopsy\python_modules\UBIFT_PLUGIN
+```
+
+should be created and it needs to contain the **ubift_autopsy.py** and **ubift.exe** executable.
+
+This also works on Linux by creating a Linux executable via pyInstaller.
+
+## UBIGen
+
+The **ubigen.py** CLI-tool located in the **/ubigen** folder can be used to simplify the creation of UBIFS evaluation dumps.
+
+As of now, it is severely restricted and many values are hard-coded.
+
+Its **--help** provides a description of all available commands.
+
+It is provided alongside this repository for learning purposes.
+
 # Similar Tools
 
 [UBIFS Dumper](https://github.com/nlitsme/ubidump)
@@ -91,6 +127,8 @@ python-lzo>=1.11
 # References
 
 [The Sleuth Kit](https://github.com/sleuthkit/sleuthkit)
+
+[Autopsy](https://www.autopsy.com/)
 
 # Author
 
