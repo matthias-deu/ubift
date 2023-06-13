@@ -73,9 +73,17 @@ class CommandLine:
                                        help="Outputs a specific mapped logical erase block of a specified UBI volume.")
         self.add_default_mtd_args(lebcat)
         lebcat.add_argument("lebnumber", help="Number of the logical erase block. Use 'lebls' to determine LEBs.", type=int)
-        lebcat.add_argument("--headers", help="If set, will also output headers instead of just data of the LEB..", default=False,
+        lebcat.add_argument("--headers", help="If set, will also output headers instead of just data of the LEB.", default=False,
                          action="store_true")
         lebcat.set_defaults(func=self.lebcat)
+
+        # ubicat
+        ubicat = subparsers.add_parser("ubicat", help="Outputs a specific UBI volume.")
+        ubicat.add_argument("--headers", help="If set, output will include UBI headers instead of just data of the LEB.",
+                            default=False,
+                            action="store_true")
+        self.add_default_mtd_args(ubicat)
+        ubicat.set_defaults(func=self.ubicat)
 
         # fsstat
         fsstat = subparsers.add_parser("fsstat",
@@ -152,6 +160,9 @@ class CommandLine:
         ubift_recover.add_argument("--deleted", "-d",
                                    help="If this parameter is set, all inodes not present within the file index which are found by scanning the dump will be recovered if possible. For each UBIFS instance, the recovered files will be saved to an additional folder 'RECOVERED_FILES'.",
                                    default=False, action="store_true")
+        ubift_recover.add_argument("--raw", "-r",
+                                   help="If this parameter is set, UBI volumes that do not contain UBIFS will be output as binary data.",
+                                   default=False, action="store_true")
         ubift_recover.add_argument("--output",
                                    help="Output directory where all files and directories will be dumped to.", type=str)
         ubift_recover.set_defaults(func=self.ubift_recover)
@@ -166,7 +177,7 @@ class CommandLine:
         ubift_info.set_defaults(func=self.ubift_info)
 
         # Adds default arguments such as --offset to all previously defined commands that operate in the UBI layer
-        ubi_layer_commands = [lebls, jls, lebcat, fls, istat, icat, ils, fsstat, ffind, ubift_info]
+        ubi_layer_commands = [lebls, jls, lebcat, ubicat, fls, istat, icat, ils, fsstat, ffind, ubift_info]
         for command in ubi_layer_commands:
             self.add_default_ubi_args(command)
 
@@ -376,15 +387,22 @@ class CommandLine:
                 rootlog.info(f"[+] Creating directory {ubi_dir}")
 
             for j, ubi_vol in enumerate(ubi.volumes):
-                ubifs = UBIFS(ubi_vol)
-                if ubifs is None:
-                    continue
-
+                # Create dir for UBI volume, e.g., ubi_0_1_data
                 ubi_vol_name = ubi_vol.name if len(ubi_vol.name) <= 10 else ubi_vol.name[:10]
                 ubi_vol_dir = os.path.join(ubi_dir, f"ubi_{i}_{j}_{ubi_vol_name}")
                 if not os.path.exists(ubi_vol_dir):
                     os.mkdir(ubi_vol_dir)
                     rootlog.info(f"[+] Creating directory {ubi_vol_dir}")
+
+                ubifs = UBIFS(ubi_vol)
+                if ubifs is None or (not ubifs._used_masternode and not ubifs.superblock):
+                    # Output ubi volume as binary data
+                    ubi_raw_data_path = "RAW_UBI_VOL_DATA.bin"
+                    full_path = os.path.join(ubi_vol_dir, ubi_raw_data_path)
+                    with open(full_path, "wb") as f:
+                        f.write(ubi_vol.get_data())
+                        rootlog.info(f"[+] Wrote raw UBI volume data to: {full_path}")
+                    continue
 
                 inodes = {}
                 dents = {}
@@ -749,6 +767,27 @@ class CommandLine:
             render_xents(ubifs, xentries)
         else:
             render_dents(ubifs, dents, use_full_paths, deleted=deleted)
+
+    def ubicat(self, args) -> None:
+        """
+        Prints contents of a specific UBI Volume to stdout
+        :param args:
+        :return:
+        """
+        CommandLine.verbose(args)
+
+        include_headers = args.headers
+
+        mtd = self._initialize_mtd(args)
+        mtd.partitions = UBIPartitioner().partition(mtd, fill_partitions=False)
+        ubi = self._initialize_ubi(mtd, args)
+        ubi_vol = self._initialize_ubi_volume(ubi, args)
+
+        try:
+            sys.stdout.buffer.write(ubi_vol.get_data(include_headers=include_headers))
+        except IOError as e:
+            if e.errno == errno.EPIPE:
+                pass
 
     def lebcat(self, args) -> None:
         """

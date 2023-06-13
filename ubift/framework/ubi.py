@@ -33,6 +33,22 @@ class UBIVolume:
     def lebs(self):
         return self._lebs
 
+    def get_data(self, include_headers: bool = False) -> bytes:
+        """
+        Returns the content of the UBI volume
+        :param include_headers: If true, output will contain the UBI headers
+        :return: bytes object with contents of the volume's LEBs
+        """
+        data = bytes()
+        lebs = list(self.lebs.values())
+        lebs.sort(key=lambda leb: leb.leb_num)
+        for leb in lebs:
+            if include_headers:
+                data += leb.peb
+            else:
+                data += leb.data
+        return data
+
     def __str__(self):
         return f"UBI Volume '{self.name}' (vol_index: {self._vol_num})" # LEBs: {len(self._lebs)}"
 
@@ -50,8 +66,8 @@ class UBI:
         self._volumes = []
 
         if self._validate() == False:
-            ubiftlog.error(
-                f"[-] Invalid UBI instance for Partition {partition} at offset {self._offset}, end: {self._end}")
+            ubiftlog.warn(
+                f"[-] Validate function returned False for UBI instance in Partition {partition} at offset {self._offset}, end: {self._end}")
 
         # Populates self._volumes by searching and parsing the layout volume and its vtbl_records
         self._parse_volumes()
@@ -99,11 +115,13 @@ class UBI:
         Checks if this is a valid and non-faulty UBI instance by making sure that every PEB has an erase counter header.
         @return: True if this is a valid UBI instance, otherwise False.
         """
-        image = self._partition.image
-        for i in range(0, len(self), image.block_size):
-            if image.data[
-               self.partition.offset + self._offset + i:self.partition.offset + self._offset + i + 4] != UBI_EC_HDR.__magic__:
-                return False
+        # NOTE: UBIFT allows gaps within UBI Instances that do not have EC headers
+        # TODO: Add some meaningful validation
+        # image = self._partition.image
+        # for i in range(0, len(self), image.block_size):
+        #     if image.data[
+        #        self.partition.offset + self._offset + i:self.partition.offset + self._offset + i + 4] != UBI_EC_HDR.__magic__:
+        #         return False
         return True
 
     def _parse_volumes(self) -> None:

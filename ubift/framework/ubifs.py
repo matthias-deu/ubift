@@ -165,8 +165,14 @@ class UBIFS:
             ubiftlog.error(
                 f"[-] LEB 0 which contains the Superblock node is not mapped, therefore Superblock node cannot be parsed.")
             return None
-
-        return UBIFS_SB_NODE(self.ubi_volume.lebs[0].data, 0)
+        else:
+            sb_node = UBIFS_SB_NODE(self.ubi_volume.lebs[0].data, 0)
+            if not sb_node or not sb_node.ch.validate_magic():
+                ubiftlog.warn(
+                    f"[!] There is a LEB 0 but an invalid supernode, maybe this is not an UBIFS instance?")
+                return None
+            else:
+                return sb_node
 
     def _parse_orphan_nodes(self) -> list[UBIFS_ORPH_NODE]:
         """
