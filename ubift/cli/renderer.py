@@ -82,7 +82,12 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
             total_size += size
             total_recoverable += recoverable
             if inode_info:
-                outfd.write(f"{zpad(inum, 6)}\t\t{zpad(inode.ino_size, 13)}\t\t{zpad(recoverable, 13)}\t\t{'{:.0%}'.format(recoverable / inode.ino_size)}\n")
+                if inode.ino_size != 0:
+                    outfd.write(
+                        f"{zpad(inum, 6)}\t\t{zpad(inode.ino_size, 13)}\t\t{zpad(recoverable, 13)}\t\t{'{:.0%}'.format(recoverable / inode.ino_size)}\n")
+                else:
+                    outfd.write(
+                        f"{zpad(inum, 6)}\t\t{zpad(inode.ino_size, 13)}\t\t{zpad(recoverable, 13)}\t\t0%\n")
 
     outfd.write(f"Deleted Inodes found: {deleted_inodes}\n")
     outfd.write(f"Accumulated Deleted Inode Size: {total_size} ({readable_size(total_size)})\n")
