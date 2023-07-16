@@ -364,7 +364,7 @@ def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_
 
             accu_size += len(data_node.decompressed_data)
 
-        if inode.ino_size > accu_size:
+        if inode.ino_size > accu_size and accu_size > 0:
             ubiftlog.warning(
                 f"[!] Size from inode field 'size' ({inode.ino_size}) is more than written bytes {accu_size}. Filling bytes with zeroes.")
             f.seek(inode.ino_size)

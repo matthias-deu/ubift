@@ -231,8 +231,5 @@ fabric.properties
 # libreoffice files
 **/.~lock*
 
-# ocrmypdf docker container
-data/ocrmypdf.tar
-
-# protege tempfiles
-data/catalog-v001.xml
+# local files
+/utils/

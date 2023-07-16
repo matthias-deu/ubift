@@ -66,6 +66,9 @@ class Journal:
         ubiftlog.info(f"[!] Parsing bud {UBIFS_JOURNAL_HEADS(jhead)}")
 
         ref_node = self._jheads[jhead]
+        if ref_node.lnum not in self._ubifs.ubi_volume.lebs:
+            ubiftlog.info(f"[-] Cannot parse bud {UBIFS_JOURNAL_HEADS(jhead)} because referenced LEB {ref_node.lnum} is not mapped.")
+            return []
         leb = self._ubifs.ubi_volume.lebs[ref_node.lnum]
         leb_offs = ref_node.offs
 
