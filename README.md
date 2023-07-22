@@ -48,6 +48,14 @@ UBIFT supports the following commands:
 
 For a detailed description of every command, refer to the **--help** of the tool.
 
+# Autopsy Integration
+
+UBIFT can be integrated with Autopsy by using the Python ingest module found at **/ubift/autopsy/ubift_autopsy.py**
+
+An installation guide about the installation of Python modules can be found [here](https://sleuthkit.org/autopsy/docs/user-docs/3.1/module_install_page.html#:~:text=Installing%20Python%20Module,next%20time%20it%20loads%20modules.)
+
+**IMPORTANT: The module requires UBIFT to be available in the same directory as the Python ingest module. Therefore UBIFT has to be packed and provided via [*pyInstaller*](https://pyinstaller.org/en/stable/) to the same directory as the module**
+
 # Branch *original*
 
 Contains the original version described in the master's thesis. The original version contains some differences that were changed in later versions. For instance, instead of specifying offsets and ubi volumes as follows:
