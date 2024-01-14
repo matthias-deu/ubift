@@ -1,16 +1,17 @@
+import csv
 import errno
-import logging
 import os
 import sys
 import tempfile
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Literal
 
-from ubift.framework import ubifs
+from rich.console import Console
+from rich.table import Table
 from ubift.framework.mtd import Image
 from ubift.framework.structs.ubi_structs import UBI_VTBL_RECORD
 from ubift.framework.structs.ubifs_structs import UBIFS_DENT_NODE, UBIFS_INODE_TYPES, UBIFS_INO_NODE, UBIFS_KEY, \
-    UBIFS_DATA_NODE, UBIFS_KEY_TYPES, UBIFS_CH, UBIFS_JOURNAL_HEADS
+    UBIFS_DATA_NODE, UBIFS_KEY_TYPES, UBIFS_JOURNAL_HEADS
 from ubift.framework.ubi import UBIVolume
 from ubift.framework.ubifs import UBIFS, Journal
 from ubift.framework.util import crc32
@@ -47,7 +48,8 @@ def zpad(num: int, len: str) -> int:
 
 
 def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
-                               scanned_dents: dict, scanned_data_nodes: dict, inode_info: bool = False, outfd=sys.stdout) -> None:
+                               scanned_dents: dict, scanned_data_nodes: dict, inode_info: bool = False,
+                               outfd=sys.stdout) -> None:
     """
     Prints recoverability information regarding deleted inodes
     :param image: Image instance
@@ -59,7 +61,8 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     :param outfd: Where to output everything
     :return:
     """
-    if ubifs.superblock is None or ubifs._used_masternode is None or (isinstance(ubifs._used_masternode, list) and len(ubifs._used_masternode) == 0):
+    if ubifs.superblock is None or ubifs._used_masternode is None or (
+            isinstance(ubifs._used_masternode, list) and len(ubifs._used_masternode) == 0):
         ubiftlog.error(f"[-] Cannot execute ubift_info because either there is no superblock node or no master node.\n")
         return
 
@@ -77,7 +80,7 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
         if inode.nlink == 0:
             deleted_inodes += 1
             size = inode.ino_size
-            recoverable = min(len(scanned_data_nodes[inum]) * 4096, size) if inum in scanned_data_nodes else 0
+            recoverable = min(len(scanned_data_nodes[inum]) * 4096, size) if inum in scanned_data_nodes else 0 # TODO: recoverable bytes probably cannot be calculated like that but the .size field needs to be taken instead of fixed 4096
             total_data_len += inode.data_len
             total_size += size
             total_recoverable += recoverable
@@ -92,7 +95,8 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     outfd.write(f"Deleted Inodes found: {deleted_inodes}\n")
     outfd.write(f"Accumulated Deleted Inode Size: {total_size} ({readable_size(total_size)})\n")
     percentage = "0%" if total_size == 0 else '{:.0%}'.format(total_recoverable / total_size)
-    outfd.write(f"Total Recoverable Bytes from Data Nodes: {total_recoverable} ({readable_size(total_recoverable)}) => {percentage}\n")
+    outfd.write(
+        f"Total Recoverable Bytes from Data Nodes: {total_recoverable} ({readable_size(total_recoverable)}) => {percentage}\n")
     outfd.write(f"Accumulated data_len fields (used for xattr): {readable_size(total_data_len)}\n")
 
     fs_size = ubifs.superblock.leb_cnt * ubifs.superblock.leb_size
@@ -104,8 +108,10 @@ def render_recoverability_info(image: Image, ubifs: UBIFS, scanned_inodes: dict,
     attrs = {"total_free": "Free Space", "total_dirty": "Dirty Space",
              "total_used": "Total Used Space", "total_dead": "Total Dead Space",
              "total_dark": "Total Dark Space"}
-    for k,v in attrs.items():
-        outfd.write(f"{v}: {getattr(ubifs._used_masternode, k)} ({readable_size(getattr(ubifs._used_masternode, k))})\n")
+    for k, v in attrs.items():
+        outfd.write(
+            f"{v}: {getattr(ubifs._used_masternode, k)} ({readable_size(getattr(ubifs._used_masternode, k))})\n")
+
 
 def render_journal(image: Image, ubifs: UBIFS, journal: Journal, outfd=sys.stdout) -> None:
     """
@@ -123,7 +129,7 @@ def render_journal(image: Image, ubifs: UBIFS, journal: Journal, outfd=sys.stdou
     else:
         outfd.write(f"Journal contains NO commit start node.\n\n")
     outfd.write(f"Journal contains {len(journal.ref_nodes)} head(s):\n")
-    for head,nodes in journal.buds.items():
+    for head, nodes in journal.buds.items():
         if len(nodes) > 0:
             outfd.write(f"Head '{UBIFS_JOURNAL_HEADS(head)}' ({len(nodes)} nodes):\n")
             for node in nodes:
@@ -134,12 +140,13 @@ def render_journal(image: Image, ubifs: UBIFS, journal: Journal, outfd=sys.stdou
         outfd.write("\n")
 
 
-
-def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
-                      outfd=sys.stdout, deleted:bool= False, datanodes:dict[int, list]=None , dents:dict[int, list]=None) -> None:
+def render_inodes(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_NODE], human_readable: bool = True,
+                  outfd=sys.stdout, deleted: bool = False, datanodes: dict[int, list] = None,
+                  dents: dict[int, list] = None, format: Literal["table", "csv"] = "table") -> None:
     """
     Renders a list of inodes to given output. Utilizes same sequence as TSK ils (apart from st_block0, st_block1 and st_alloc entries), see http://www.sleuthkit.org/sleuthkit/man/ils.html
     For the "modes" field in an inode, refer to https://man7.org/linux/man-pages/man7/inode.7.html, it has file_type and a file_mode components
+    :param format:
     :param deleted:
     :param image:
     :param ubifs:
@@ -148,14 +155,15 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
     :return:
     """
     # If datanodes is provided, the number of associated data nodes with an inode node is also printed
+    header = ["inum", "uid", "gid", "mtime", "atime", "ctime", "type", "perm", "nlink", "inode_size"]
     if datanodes is not None:
-        outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size|data_nodes|dent_nodes\n")
-    else:
-        outfd.write(f"inum|uid|gid|mtime|atime|ctime|mode|nlink|inode_size\n")
+        header.extend(["data_nodes", "data_nodes_data", "dent_nodes"])
+    data = []
+
     for inum, inode in inodes.items():
         if deleted and inode.nlink != 0:
             continue
-        if (inode.ch.crc != crc32(inode.pack()[8:inode.ch.len])):
+        if inode.ch.crc != crc32(inode.pack()[8:inode.ch.len]):
             ubiftlog.info(f"[!] CRC in common header of inode {inum} does not match CRC of its contents.")
             continue
         uid = inode.uid
@@ -178,7 +186,8 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
         except:
             ctime = inode.ctime_sec
 
-        mode = inode.mode if not human_readable else f"{InodeMode(inode.mode).file_type}|{InodeMode(inode.mode).full_perm}"
+        file_type = InodeMode(inode.mode).file_type
+        permissions = InodeMode(inode.mode).full_perm
         nlink = inode.nlink
         size = inode.ino_size if not human_readable else readable_size(inode.ino_size)
 
@@ -191,13 +200,22 @@ def render_inode_list(image: Image, ubifs: UBIFS, inodes: Dict[int, UBIFS_DATA_N
         #     print("xattr_names:" + str(inode.xattr_names))
         #     exit()
 
-
         if datanodes is not None and dents is not None:
             datanode_count = 0 if inum not in datanodes else len(datanodes[inum])
             dentnode_count = 0 if inum not in dents else len(dents[inum])
-            sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}|{datanode_count}|{dentnode_count}\n")
+            datanode_accumulated_size = 0
+            if datanode_count > 0:
+                for datanode in datanodes[inum]:
+                    datanode_accumulated_size += datanode.data_size
+
+            data.append((str(inum), str(uid), str(gid), str(mtime), str(atime), str(ctime), str(file_type), str(permissions), str(nlink), str(size), str(datanode_count), str(readable_size(datanode_accumulated_size)), str(dentnode_count)))
         else:
-            sys.stdout.write(f"{inum}|{uid}|{gid}|{mtime}|{atime}|{ctime}|{mode}|{nlink}|{size}\n")
+            data.append((str(inum), str(uid), str(gid), str(mtime), str(atime), str(ctime), str(file_type), str(permissions), str(nlink), str(size)))
+
+    if format == "table":
+        to_rich_table(header, data, outfd)
+    elif format == "csv":
+        to_csv(header, data, delimiter='|', outfd=outfd)
 
 
 class InodeMode:
@@ -347,7 +365,7 @@ def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_
     filename, extension = os.path.splitext(abs_path)
     while os.path.exists(abs_path):
         counter += 1
-        #ubiftlog.error(f"[-] Cannot create file because it already exists: {abs_path}.")
+        # ubiftlog.error(f"[-] Cannot create file because it already exists: {abs_path}.")
         abs_path = filename + f"({counter})" + extension
 
     if counter > 0:
@@ -378,7 +396,8 @@ def write_to_file(inode: UBIFS_INO_NODE, data_nodes: List[UBIFS_DATA_NODE], abs_
         return
 
 
-def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_NODE], outfd=sys.stdout, inodes: dict = None) -> None:
+def render_data_nodes(ubifs: UBIFS, inode_num: int, data_nodes: List[UBIFS_DATA_NODE], outfd=sys.stdout,
+                      inodes: dict = None) -> None:
     """
     Outputs the content of given data nodes. Also does some validation checks, e.g., checks if size of uncompressed
      data matches the size field in the corersponding UBIFS_INO_NODE
@@ -483,68 +502,104 @@ def render_xents(ubifs: UBIFS, xents: Dict[int, UBIFS_DENT_NODE], outfd=sys.stdo
             outfd.write(f"{xent.formatted_name()}")
             outfd.write("\n")
 
-def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout, deleted:bool = False) -> None:
+
+def render_dents(ubifs: UBIFS, dents: Dict[int, UBIFS_DENT_NODE], full_paths: bool, outfd=sys.stdout,
+                 deleted: bool = False, print_related_dents: bool = False,
+                 format: Literal["table", "csv"] = "table") -> None:
     """
     Renders a dict of UBIFS_NODE_DENT to output (like fls in TSK)
-    :param deleted:
+    :param format:
+    :param print_related_dents: Since a deleted-marker inum of 0 prevents getting information about the deleted inode number, this option will try to find dents that have the same parent inum and hash, which means that those are possibly the deleted related inodes
+    :param deleted: If true, will only print dents that have their inum set to 0 (which is basically a deleted-marker)
     :param ubifs: UBIFS instance, needed to unroll paths
     :param dents: Dict of inode num->dent
     :param full_paths: If True, will print full paths of files
     :param outfd: Where to write output data
     :return:
     """
-    dent_list = dents.values() if isinstance(dents, Dict) else dents
+    concat_list = []
+    for k, v in dents.items():
+        concat_list.extend(v)
 
-    outfd.write("Type\tInode\tParent\tName\n")
-    for dent in dent_list:
-        # TODO: This method supports Dict[int, UBIFS_DENT_NODE] and Dict[int, list[UBIFS_DENT_NODE]] therefore this is needed but maybe it can be implemented in a better way
-        if isinstance(dent, list):
-            for dent2 in dent:
-                if deleted and dent2.inum != 0:
-                    continue
-                render_inode_type(dent2.type)
-                outfd.write(f"\t{dent2.inum}")
-                outfd.write(f"\t{UBIFS_KEY.from_bytearray(dent2.key).inode_num}\t")
-                if full_paths:
-                    outfd.write(f"{ubifs._unroll_path(dent2, dents)}")
-                else:
-                    outfd.write(f"{dent2.formatted_name()}")
-                outfd.write("\n")
+    header = ["Type", "Inode", "Parent", "Name"] if not print_related_dents else ["Type", "Inode", "Parent",
+                                                                                  "Name", "Related Inodes"]
+    data = []
+
+    keyed_dents = {}  # Maps (parent, hash) of dent to list of dents which have same parent&hash
+    if print_related_dents:
+        for dent in concat_list:
+            key = UBIFS_KEY.from_bytearray(dent.key)
+            keyed_dents.setdefault((key.inode_num, key.payload), []).append(dent)
+
+    for dent in concat_list:
+        # When --deleted is set, skip dent nodes that do not have the deleted marker of dent.inum==0
+        if deleted and dent.inum != 0:
+            continue
+        dent_key = UBIFS_KEY.from_bytearray(dent.key)
+
+        inode_type = inode_type_to_str(dent.type)
+        dent_inum = dent.inum
+        dent_parent_inum = dent_key.inode_num
+        dent_path = ubifs._unroll_path(dent, dents) if full_paths else dent.formatted_name()
+        if (dent_key.inode_num, dent_key.payload) in keyed_dents:
+            matched_dents = [str(matched_dent.inum) for matched_dent in keyed_dents[(dent_key.inode_num, dent_key.payload)]
+                             if matched_dent.inum != 0]
         else:
-            if deleted and dent.inum != 0:
-                continue
-            render_inode_type(dent.type)
-            outfd.write(f"\t{dent.inum}")
-            outfd.write(f"\t{UBIFS_KEY.from_bytearray(dent.key).inode_num}\t")
-            if full_paths:
-                outfd.write(f"{ubifs._unroll_path(dent, dents)}")
-            else:
-                outfd.write(f"{dent.formatted_name()}")
-            outfd.write("\n")
+            matched_dent = []
+
+        if print_related_dents:
+            data.append((inode_type, str(dent_inum), str(dent_parent_inum), dent_path, ",".join(matched_dents)))
+        else:
+            data.append((inode_type, str(dent_inum), str(dent_parent_inum), dent_path))
+
+    if format == "table":
+        to_rich_table(header, data, outfd)
+    elif format == "csv":
+        to_csv(header, data, delimiter='|', outfd=outfd)
 
 
-def render_inode_type(inode_type: int, outfd=sys.stdout):
+def to_csv(columns: list[str], rows: list[tuple], delimiter=str('|'), outfd=sys.stdout) -> None:
+    csvwriter = csv.writer(outfd, delimiter=delimiter)
+    csvwriter.writerow(columns)
+    for data in rows:
+        csvwriter.writerow([*data])
+
+
+def to_rich_table(columns: list[str], rows: list[tuple], outfd=sys.stdout) -> None:
+    console = Console(file=outfd)
+
+    table = Table()
+    for column in columns:
+        table.add_column(column)
+
+    for data in rows:
+        table.add_row(*data)
+
+    console.print(table, overflow="fold")
+
+
+def inode_type_to_str(inode_type: int) -> str:
     """
-    Renders an UBIFS_INODE_TYPES to a readable format (no newline)
-    :param inode_type:
-    :return:
+    Converts the inode type (int) to a readable string
+    :param inode_type: Inode type as int
+    :return: Inode type as string
     """
     if inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_REG:
-        outfd.write(f"file")
+        return "file"
     elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_DIR:
-        outfd.write(f"dir")
+        return "dir"
     elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_LNK:
-        outfd.write(f"link")
+        return "link"
     elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_BLK:
-        outfd.write(f"blk")
+        return "blk"
     elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_CHR:
-        outfd.write(f"chr")
+        return "chr"
     elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_FIFO:
-        outfd.write(f"link")
+        return "link"
     elif inode_type == UBIFS_INODE_TYPES.UBIFS_ITYPE_SOCK:
-        outfd.write(f"sock")
+        return "sock"
     else:
-        outfd.write(f"unkn")
+        return "unkn"
 
 
 def render_image(image: Image, outfd=sys.stdout) -> None:

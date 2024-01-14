@@ -4,3 +4,4 @@ crcmod~=1.7
 zstandard~=0.21.0
 python-lzo>=1.11
 pathvalidate
+rich

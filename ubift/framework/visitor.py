@@ -28,16 +28,10 @@ def _dent_xent_scan_leb_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, le
                            dents: dict[int, list[UBIFS_DENT_NODE]], xentries: dict[int, list[UBIFS_DENT_NODE]], **kwargs):
     if ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_XENT_NODE:
         xent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
-        if xent_node.inum in xentries:
-            xentries[xent_node.inum].append(xent_node)
-        else:
-            xentries[xent_node.inum] = [xent_node]
+        xentries.setdefault(xent_node.inum, []).append(xent_node)
     elif ch_hdr.node_type == UBIFS_NODE_TYPES.UBIFS_DENT_NODE:
         dent_node = UBIFS_DENT_NODE(ubifs.ubi_volume.lebs[leb_num].data, leb_offs)
-        if dent_node.inum in dents:
-            dents[dent_node.inum].append(dent_node)
-        else:
-            dents[dent_node.inum] = [dent_node]
+        dents.setdefault(dent_node.inum, []).append(dent_node)
 
 def _all_collector_visitor(ubifs: UBIFS, ch_hdr: UBIFS_CH, leb_num: int, leb_offs: int, inodes: dict,
                                   dents: dict[int, list], datanodes: dict[int, list], **kwargs) -> None:

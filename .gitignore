@@ -231,5 +231,6 @@ fabric.properties
 # libreoffice files
 **/.~lock*
 
-# local files
+# local files for testing
 /utils/
+/test/

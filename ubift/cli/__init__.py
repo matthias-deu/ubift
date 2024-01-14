@@ -2,6 +2,7 @@ import argparse
 import errno
 import logging
 import os
+import struct
 import sys
 from typing import List
 import codecs
@@ -10,8 +11,8 @@ from pathvalidate import sanitize_filepath
 
 from ubift import exception
 from ubift.cli.renderer import render_lebs, render_ubi_instances, render_image, render_dents, render_inode_node, \
-    render_data_nodes, render_inode_list, write_to_file, render_xents
-from ubift.framework import visitor
+    render_data_nodes, render_inodes, write_to_file, render_xents
+from ubift.framework import visitor, structs
 from ubift.framework.mtd import Image
 from ubift.framework.partitioner import UBIPartitioner
 from ubift.framework.structs.ubifs_structs import UBIFS_KEY, UBIFS_KEY_TYPES, UBIFS_INODE_TYPES, UBIFS_DENT_NODE, UBIFS_INO_NODE
@@ -104,6 +105,7 @@ class CommandLine:
         fls.add_argument("--deleted", "-d",
                          help="Similar to scan. Will perform scanning for signatures instead of using the file index. Will only show deleted directory entries. This will take priority over --scan.",
                          default=False, action="store_true")
+        fls.add_argument("--format", "-f", help="Output format. (default: %(default)s)", default="table", choices=["table", "csv"])
         fls.set_defaults(func=self.fls)
 
         # istat
@@ -134,6 +136,7 @@ class CommandLine:
         ils.add_argument("--deleted", "-d",
                          help="Similar to scan. Will perform scanning for signatures instead of using the file index. Will only show deleted inodes. This will take priority over --scan.",
                          default=False, action="store_true")
+        ils.add_argument("--format", "-f", help="Output format. (default: %(default)s)", default="table", choices=["table", "csv"])
         ils.set_defaults(func=self.ils)
 
         # ffind
@@ -628,6 +631,7 @@ class CommandLine:
 
         do_scan = args.scan
         deleted = args.deleted
+        format = args.format
 
         mtd = self._initialize_mtd(args)
         mtd.partitions = UBIPartitioner().partition(mtd, fill_partitions=False)
@@ -641,11 +645,11 @@ class CommandLine:
         if do_scan or deleted:
             ubifs._scan_lebs(visitor._all_collector_visitor, inodes=inodes, dents=dents,
                              datanodes=datanodes)
-            render_inode_list(mtd, ubifs, inodes, deleted=deleted, datanodes=datanodes, dents=dents)
+            render_inodes(mtd, ubifs, inodes, deleted=deleted, datanodes=datanodes, dents=dents, format=format)
         else:
             ubifs._traverse(ubifs._root_idx_node, visitor._inode_dent_collector_visitor, inodes=inodes,
                             dents=dents)
-            render_inode_list(mtd, ubifs, inodes)
+            render_inodes(mtd, ubifs, inodes, format=format)
 
     def icat(self, args) -> None:
         """
@@ -742,6 +746,7 @@ class CommandLine:
         do_scan = args.scan
         master_node_index = args.master
         deleted = args.deleted
+        format = args.format
         output_xentries = args.xentries
 
         mtd = self._initialize_mtd(args)
@@ -766,7 +771,7 @@ class CommandLine:
         if output_xentries:
             render_xents(ubifs, xentries)
         else:
-            render_dents(ubifs, dents, use_full_paths, deleted=deleted)
+            render_dents(ubifs, dents, use_full_paths, deleted=deleted, print_related_dents=True, format=format)
 
     def ubicat(self, args) -> None:
         """

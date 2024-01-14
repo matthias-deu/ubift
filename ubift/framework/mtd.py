@@ -68,6 +68,7 @@ class Image:
         :param data:
         :return: Size of a PEB or raises an exception if guess failed.
         """
+
         ec_hdr_offset = find_signature(data, UBI_EC_HDR.__magic__)
         if ec_hdr_offset < 0:
             raise UBIFTException("Block size not specified, cannot guess size neither because no UBI_EC_HDR signatures found.")
