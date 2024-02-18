@@ -454,9 +454,14 @@ def render_ubi_vtbl_record(vtbl_record: UBI_VTBL_RECORD, outfd=sys.stdout):
 
 def render_inode_node(ubifs: UBIFS, inode: int, inode_node: UBIFS_INO_NODE, outfd=sys.stdout):
     # TODO: Everything is displayed in DEZIMAL, maybe this is not the best format for this case.
+    # TODO: Better rendering of inode
     # outfd.write(f"Inode {inode} of UBIFS Instance in UBI Volume {ubifs.ubi_volume.name}\n")
     for field in inode_node.__fields__:
-        print(f"{field}: {getattr(inode_node, field)}")
+        if "atime" in field or "ctime" in field or "mtime" in field:
+            epoch = getattr(inode_node, field)
+            print(f"{field}: {datetime.fromtimestamp(epoch)} ({epoch})")
+        else:
+            print(f"{field}: {getattr(inode_node, field)}")
 
 
 def render_xents(ubifs: UBIFS, xents: Dict[int, UBIFS_DENT_NODE], outfd=sys.stdout):
