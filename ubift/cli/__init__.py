@@ -80,7 +80,7 @@ class CommandLine:
 
         # ubicat
         ubicat = subparsers.add_parser("ubicat", help="Outputs a specific UBI volume.")
-        ubicat.add_argument("--headers", help="If set, output will include UBI headers instead of just data of the LEB.",
+        ubicat.add_argument("--headers", help="If set, output will include UBI headers instead of just data of the UBI volume.",
                             default=False,
                             action="store_true")
         self.add_default_mtd_args(ubicat)

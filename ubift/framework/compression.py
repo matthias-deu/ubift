@@ -30,6 +30,6 @@ def decompress(data: bytes, compr_type: int, size: int = None) -> bytes:
             raise exception.UBIFTException(f"Data is compressed with unknown type. ({compr_type})")
     except Exception as e:
         ubiftlog.warn(
-            f"[-] Error while decompressing data using {UBIFS_COMPRESSION_TYPE(compr_type).name}: {e}")
+            f"[-] Error while decompressing data using {compr_type}: {e}")
         return bytes()
 
